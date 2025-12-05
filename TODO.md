@@ -12,7 +12,7 @@ A living checklist to track the next steps toward the full curve-based pipeline 
 
 ## CLI
 - [ ] Expose all tunable options (tolerance, min-region area, presets) with clear help text.
-- [ ] Polished exit codes and error messaging for bad inputs.
+- [x] Polished exit codes and error messaging for bad inputs.
 
 ## WASM + web UI
 - [ ] Reusable wasm-pack/Vite build that emits the WASM bundle consumed by the app.
@@ -21,5 +21,5 @@ A living checklist to track the next steps toward the full curve-based pipeline 
 - [ ] Example gallery (PNG input + expected SVG) for quick validation.
 
 ## Documentation
-- [ ] README updates with option descriptions, presets, and quality trade-offs.
+- [x] README updates with option descriptions, presets, and quality trade-offs.
 - [ ] Developer notes for running the WASM build and publishing the package.

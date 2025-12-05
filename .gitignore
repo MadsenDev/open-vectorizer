@@ -3,4 +3,6 @@
 **/*.rs.bk
 node_modules
 /dist
+.wasm-pack
+web-ui/public/pkg
 .DS_Store

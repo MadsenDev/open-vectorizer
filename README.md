@@ -25,7 +25,7 @@ cargo test
 
 ```bash
 cargo run -p png2svg-cli -- path/to/input.png --output output.svg \
-  --colors 8 --detail 0.5 --smoothness 0.5 --mode logo
+  --colors 8 --detail 0.5 --smoothness 0.5 --tolerance 1.5 --mode logo
 ```
 
 If `--output` is omitted, the SVG is printed to stdout. The current engine performs a lightweight palette reduction and emits merged `<rect>` rows to keep the SVG editable while we build out the full curve-based pipeline.

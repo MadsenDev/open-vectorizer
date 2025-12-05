@@ -1,6 +1,8 @@
 import { ChangeEvent, useEffect, useMemo, useState } from 'react';
 import clsx from 'clsx';
 
+type WasmModule = typeof import('/pkg/png2svg_core.js');
+
 const MAX_COLORS = 32;
 
 type Mode = 'logo' | 'poster' | 'pixel';
@@ -64,15 +66,53 @@ function App() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [pngPreviewUrl, setPngPreviewUrl] = useState<string | null>(null);
   const [svgMarkup, setSvgMarkup] = useState<string>('');
+  const [wasmModule, setWasmModule] = useState<WasmModule | null>(null);
+  const [wasmReady, setWasmReady] = useState(false);
+  const [wasmError, setWasmError] = useState<string | null>(null);
+  const [isVectorizing, setIsVectorizing] = useState(false);
+  const [vectorizeError, setVectorizeError] = useState<string | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
+
+    async function loadWasm() {
+      try {
+        const module: WasmModule = await import('/pkg/png2svg_core.js');
+        await module.default();
+        if (cancelled) return;
+
+        const defaults = JSON.parse(module.default_options_json()) as UiOptions;
+        setWasmModule(module);
+        setOptions((prev) => ({ ...defaults, ...prev }));
+        setWasmReady(true);
+      } catch (error) {
+        console.error('[open-vectorizer] failed to load wasm', error);
+        if (cancelled) return;
+        setWasmError(
+          'Failed to load WASM build. Run `wasm-pack build png2svg/core --target web --out-dir web-ui/public/pkg --release` first.',
+        );
+      }
+    }
+
+    loadWasm();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (selectedFile) return;
     setSvgMarkup(generatePlaceholderSvg(options));
-  }, [options]);
+  }, [options, selectedFile]);
 
   const status = useMemo(() => {
+    if (wasmError) return wasmError;
+    if (!wasmReady) return 'Loading WASM build…';
+    if (isVectorizing) return 'Vectorizing PNG…';
     if (!selectedFile) return 'Upload a PNG to begin';
     return `Ready to vectorize ${selectedFile.name}`;
-  }, [selectedFile]);
+  }, [isVectorizing, selectedFile, wasmError, wasmReady]);
 
   function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -90,12 +130,56 @@ function App() {
     });
   }
 
+  useEffect(() => {
+    if (!wasmReady || !wasmModule || !selectedFile) return;
+
+    let cancelled = false;
+    setIsVectorizing(true);
+    setVectorizeError(null);
+
+    async function runVectorizer() {
+      try {
+        const buffer = await selectedFile.arrayBuffer();
+        const svg = wasmModule.png_to_svg_wasm(new Uint8Array(buffer), JSON.stringify(options));
+        if (!cancelled) {
+          setSvgMarkup(svg);
+        }
+      } catch (error) {
+        console.error('[open-vectorizer] vectorization failed', error);
+        if (!cancelled) {
+          const message = error instanceof Error ? error.message : 'Unknown error';
+          setVectorizeError(`Vectorization failed: ${message}`);
+          setSvgMarkup(generatePlaceholderSvg(options));
+        }
+      } finally {
+        if (!cancelled) {
+          setIsVectorizing(false);
+        }
+      }
+    }
+
+    runVectorizer();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [options, selectedFile, wasmModule, wasmReady]);
+
   function updateOption<K extends keyof UiOptions>(key: K, value: UiOptions[K]) {
     setOptions((prev) => ({ ...prev, [key]: value }));
   }
 
   function applyPreset(presetOptions: UiOptions) {
     setOptions(presetOptions);
+  }
+
+  function presetMatches(candidate: UiOptions) {
+    return (
+      candidate.colors === options.colors &&
+      candidate.detail === options.detail &&
+      candidate.smoothness === options.smoothness &&
+      candidate.mode === options.mode
+    );
   }
 
   return (
@@ -145,7 +229,7 @@ function App() {
                   onClick={() => applyPreset(preset.options)}
                   className={clsx(
                     'w-full rounded-lg border px-3 py-2 text-left text-sm font-medium transition',
-                    options === preset.options
+                    presetMatches(preset.options)
                       ? 'border-emerald-400 bg-emerald-500/10 text-white'
                       : 'border-slate-700 bg-slate-900/60 text-slate-200 hover:border-emerald-400/70 hover:bg-slate-900',
                   )}
@@ -246,10 +330,22 @@ function App() {
                 <p className="text-sm text-slate-400">Original PNG on the left, vector preview on the right.</p>
               </div>
               <div className="flex items-center gap-2 text-xs text-slate-400">
-                <span className="rounded-full bg-emerald-500/20 px-2 py-1 font-semibold text-emerald-200">
-                  Live Stub
+                <span
+                  className={clsx(
+                    'rounded-full px-2 py-1 font-semibold',
+                    wasmReady ? 'bg-emerald-500/20 text-emerald-200' : 'bg-amber-500/20 text-amber-100',
+                  )}
+                >
+                  {wasmReady ? 'WASM ready' : 'WASM build missing'}
                 </span>
-                <span className="rounded-full bg-slate-800 px-2 py-1 font-semibold text-slate-200">WASM soon</span>
+                <span
+                  className={clsx(
+                    'rounded-full px-2 py-1 font-semibold',
+                    isVectorizing ? 'bg-emerald-500/20 text-emerald-200' : 'bg-slate-800 text-slate-200',
+                  )}
+                >
+                  {isVectorizing ? 'Vectorizing…' : 'Idle'}
+                </span>
               </div>
             </div>
 
@@ -269,7 +365,7 @@ function App() {
 
               <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950/60">
                 <div className="border-b border-slate-800 px-4 py-2 text-xs uppercase tracking-[0.15em] text-slate-400">
-                  SVG Preview (placeholder)
+                  SVG Preview {selectedFile && wasmReady ? '(rendered)' : '(placeholder)'}
                 </div>
                 <div className="flex h-72 items-center justify-center bg-slate-950">
                   {svgMarkup ? (
@@ -285,13 +381,24 @@ function App() {
                 </div>
               </div>
             </div>
+            {vectorizeError && (
+              <div className="rounded-xl border border-amber-600/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
+                {vectorizeError}
+              </div>
+            )}
+            {!wasmReady && wasmError && (
+              <div className="rounded-xl border border-amber-600/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
+                {wasmError}
+              </div>
+            )}
           </div>
 
           <div className="rounded-2xl border border-emerald-900/60 bg-emerald-500/5 p-4 text-sm text-emerald-100">
-            <p className="font-semibold text-emerald-200">Next up: wire the WASM core</p>
+            <p className="font-semibold text-emerald-200">WASM pipeline ready</p>
             <p className="text-emerald-100/90">
-              This UI is ready to call into the Rust vectorizer once the wasm_bindgen entry point lands. The controls mirror the CL
-              I options so we can pipe the outputs straight into the engine.
+              Build the WebAssembly bundle with
+              <code className="mx-1 rounded bg-emerald-500/10 px-1 py-0.5 font-mono text-xs text-emerald-100">wasm-pack build png2svg/core --target web --out-dir web-ui/public/pkg --release</code>
+              and restart <code className="mx-1 rounded bg-emerald-500/10 px-1 py-0.5 font-mono text-xs text-emerald-100">npm run dev</code> to serve the module locally.
             </p>
           </div>
         </section>

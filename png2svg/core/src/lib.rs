@@ -5,6 +5,9 @@ use image::{Rgba, RgbaImage};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::prelude::*;
+
 #[derive(Debug, Error)]
 pub enum VectorizeError {
     #[error("failed to decode image: {0}")]
@@ -14,9 +17,11 @@ pub enum VectorizeError {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum VectorizeMode {
     Logo,
     Poster,
+    #[serde(rename = "pixel", alias = "pixelart", alias = "pixel-art")]
     PixelArt,
 }
 
@@ -27,6 +32,7 @@ impl Default for VectorizeMode {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct VectorizeOptions {
     pub colors: u8,
     pub detail: f32,
@@ -55,6 +61,25 @@ pub fn png_to_svg(png_bytes: &[u8], options: &VectorizeOptions) -> Result<String
     let svg = render_svg(&indexed, &palette, rgba.width(), rgba.height(), options);
 
     Ok(svg)
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub fn png_to_svg_wasm(png_bytes: &[u8], options_json: &str) -> Result<String, JsValue> {
+    let options = if options_json.trim().is_empty() {
+        VectorizeOptions::default()
+    } else {
+        serde_json::from_str::<VectorizeOptions>(options_json)
+            .map_err(|err| JsValue::from_str(&format!("invalid options json: {err}")))?
+    };
+
+    png_to_svg(png_bytes, &options).map_err(|err| JsValue::from_str(&err.to_string()))
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub fn default_options_json() -> String {
+    serde_json::to_string(&VectorizeOptions::default()).unwrap_or_else(|_| "{}".to_string())
 }
 
 fn palette_size_from_options(options: &VectorizeOptions) -> usize {
@@ -185,6 +210,7 @@ fn to_hex(color: [u8; 4]) -> String {
 mod tests {
     use super::*;
     use image::{codecs::png::PngEncoder, ColorType, DynamicImage, ImageEncoder};
+    use serde_json::json;
 
     #[test]
     fn creates_svg_output() {
@@ -222,5 +248,25 @@ mod tests {
         });
         let palette = build_palette(&non_empty, 3);
         assert!(palette.len() <= 3);
+    }
+
+    #[test]
+    fn options_round_trip_json() {
+        let json = json!({
+            "colors": 12,
+            "detail": 0.75,
+            "smoothness": 0.4,
+            "mode": "pixel",
+        });
+
+        let options: VectorizeOptions =
+            serde_json::from_value(json).expect("options should deserialize");
+        assert_eq!(options.colors, 12);
+        assert_eq!(options.detail, 0.75);
+        assert_eq!(options.smoothness, 0.4);
+        assert!(matches!(options.mode, VectorizeMode::PixelArt));
+
+        let serialized = serde_json::to_string(&options).expect("options should serialize");
+        assert!(serialized.contains("\"mode\":\"pixel\""));
     }
 }

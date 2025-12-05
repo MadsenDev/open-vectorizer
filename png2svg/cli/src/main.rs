@@ -23,6 +23,9 @@ struct Cli {
     /// Smoothness factor for curves (0.0 - 1.0)
     #[arg(short = 's', long, default_value_t = 0.5)]
     smoothness: f32,
+    /// Tolerance for path simplification and grouping (higher = looser).
+    #[arg(short = 't', long, default_value_t = 1.5)]
+    tolerance: f32,
     /// Rendering mode hint.
     #[arg(long, default_value = "logo", value_parser = parse_mode)]
     mode: VectorizeMode,
@@ -50,6 +53,7 @@ fn main() -> Result<()> {
         colors: cli.colors,
         detail: cli.detail,
         smoothness: cli.smoothness,
+        tolerance: cli.tolerance,
         mode: cli.mode,
     };
 

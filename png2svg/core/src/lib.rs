@@ -37,6 +37,7 @@ pub struct VectorizeOptions {
     pub colors: u8,
     pub detail: f32,
     pub smoothness: f32,
+    pub tolerance: f32,
     pub mode: VectorizeMode,
 }
 
@@ -46,6 +47,7 @@ impl Default for VectorizeOptions {
             colors: 8,
             detail: 0.6,
             smoothness: 0.5,
+            tolerance: 1.5,
             mode: VectorizeMode::Logo,
         }
     }
@@ -55,10 +57,8 @@ pub fn png_to_svg(png_bytes: &[u8], options: &VectorizeOptions) -> Result<String
     let image = image::load_from_memory(png_bytes)?;
     let rgba = image.to_rgba8();
 
-    let palette_size = palette_size_from_options(options);
-    let palette = build_palette(&rgba, palette_size);
-    let indexed = map_to_palette(&rgba, &palette);
-    let svg = render_svg(&indexed, &palette, rgba.width(), rgba.height(), options);
+    let quantized = quantize_image(&rgba, options);
+    let svg = render_svg(&quantized, options);
 
     Ok(svg)
 }
@@ -86,6 +86,27 @@ fn palette_size_from_options(options: &VectorizeOptions) -> usize {
     let clamped_detail = options.detail.clamp(0.1, 1.0);
     let base = options.colors.max(2) as f32;
     (base * clamped_detail).ceil() as usize
+}
+
+#[derive(Debug, Clone)]
+struct QuantizedImage {
+    palette: Vec<[u8; 4]>,
+    indices: Vec<usize>,
+    width: u32,
+    height: u32,
+}
+
+fn quantize_image(image: &RgbaImage, options: &VectorizeOptions) -> QuantizedImage {
+    let palette_size = palette_size_from_options(options);
+    let palette = build_palette(image, palette_size);
+    let indices = map_to_palette(image, &palette);
+
+    QuantizedImage {
+        palette,
+        indices,
+        width: image.width(),
+        height: image.height(),
+    }
 }
 
 fn build_palette(image: &RgbaImage, max_colors: usize) -> Vec<[u8; 4]> {
@@ -144,30 +165,26 @@ fn color_distance(a: [u8; 4], b: [u8; 4]) -> u32 {
     (dr * dr + dg * dg + db * db + da * da) as u32
 }
 
-fn render_svg(
-    indexed: &[usize],
-    palette: &[[u8; 4]],
-    width: u32,
-    height: u32,
-    options: &VectorizeOptions,
-) -> String {
-    let mut svg = String::with_capacity((width * height) as usize);
+fn render_svg(quantized: &QuantizedImage, options: &VectorizeOptions) -> String {
+    let mut svg = String::with_capacity((quantized.width * quantized.height) as usize);
     writeln!(
         svg,
         "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {w} {h}\" aria-label=\"vectorized\" shape-rendering=\"crispEdges\">",
-        w = width,
-        h = height
+        w = quantized.width,
+        h = quantized.height
     )
     .ok();
 
-    for y in 0..height as usize {
-        let row_offset = y * width as usize;
+    for y in 0..quantized.height as usize {
+        let row_offset = y * quantized.width as usize;
         let mut x = 0;
-        while x < width as usize {
-            let color_index = indexed[row_offset + x];
-            let color = palette[color_index];
+        while x < quantized.width as usize {
+            let color_index = quantized.indices[row_offset + x];
+            let color = quantized.palette[color_index];
             let mut run_end = x + 1;
-            while run_end < width as usize && indexed[row_offset + run_end] == color_index {
+            while run_end < quantized.width as usize
+                && quantized.indices[row_offset + run_end] == color_index
+            {
                 run_end += 1;
             }
 
@@ -256,6 +273,7 @@ mod tests {
             "colors": 12,
             "detail": 0.75,
             "smoothness": 0.4,
+            "tolerance": 2.0,
             "mode": "pixel",
         });
 
@@ -264,9 +282,26 @@ mod tests {
         assert_eq!(options.colors, 12);
         assert_eq!(options.detail, 0.75);
         assert_eq!(options.smoothness, 0.4);
+        assert_eq!(options.tolerance, 2.0);
         assert!(matches!(options.mode, VectorizeMode::PixelArt));
 
         let serialized = serde_json::to_string(&options).expect("options should serialize");
         assert!(serialized.contains("\"mode\":\"pixel\""));
+    }
+
+    #[test]
+    fn quantize_image_tracks_dimensions() {
+        let image = RgbaImage::from_fn(3, 2, |x, y| {
+            let alpha = if x == 0 { 0 } else { 255 };
+            Rgba([x as u8 * 20, y as u8 * 30, 10, alpha])
+        });
+
+        let options = VectorizeOptions::default();
+        let quantized = quantize_image(&image, &options);
+
+        assert_eq!(quantized.width, 3);
+        assert_eq!(quantized.height, 2);
+        assert_eq!(quantized.indices.len(), 6);
+        assert!(!quantized.palette.is_empty());
     }
 }

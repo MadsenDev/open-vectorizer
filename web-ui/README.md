@@ -1,3 +1,18 @@
-# Web UI (placeholder)
+# Web UI
 
-This directory will host the Vite + React + TypeScript front-end that consumes the WebAssembly build of the vectorizer core. Tailwind CSS 3.4.x will be used for styling, and the UI will mirror the CLI options with live preview of the generated SVG.
+Vite + React + TypeScript front-end for Open Vectorizer. Tailwind CSS 3.4.x is used for styling.
+
+## Getting started
+
+```bash
+npm install
+npm run dev
+```
+
+The dev server runs at http://localhost:5173 by default.
+
+## Notes
+
+- The preview currently uses a placeholder SVG generator. Once the Rust core is compiled to WebAssembly, wire the exported
+  `png_to_svg_wasm` entry point into the existing controls and preview area.
+- Presets mirror the CLI options so values can flow directly into the vectorizer core.

@@ -1,0 +1,303 @@
+import { ChangeEvent, useEffect, useMemo, useState } from 'react';
+import clsx from 'clsx';
+
+const MAX_COLORS = 32;
+
+type Mode = 'logo' | 'poster' | 'pixel';
+
+interface UiOptions {
+  colors: number;
+  detail: number;
+  smoothness: number;
+  mode: Mode;
+}
+
+const presets: { label: string; options: UiOptions }[] = [
+  {
+    label: 'Logo (Clean)',
+    options: { colors: 6, detail: 0.65, smoothness: 0.7, mode: 'logo' },
+  },
+  {
+    label: 'Poster (More Detail)',
+    options: { colors: 16, detail: 0.9, smoothness: 0.5, mode: 'poster' },
+  },
+  {
+    label: 'Pixel Art (Crisp)',
+    options: { colors: 12, detail: 0.4, smoothness: 0.3, mode: 'pixel' },
+  },
+];
+
+const defaultOptions: UiOptions = presets[0].options;
+
+function generatePlaceholderSvg(options: UiOptions, width = 420, height = 280) {
+  const paletteCount = Math.max(2, Math.min(MAX_COLORS, Math.round(options.colors * options.detail)));
+  const blockWidth = Math.max(12, Math.floor(width / paletteCount));
+  const opacity = (0.35 + options.smoothness * 0.5).toFixed(2);
+  const hueOffset = options.mode === 'poster' ? 24 : options.mode === 'pixel' ? 180 : 0;
+
+  const rows = Math.ceil(height / blockWidth);
+  const cols = Math.ceil(width / blockWidth);
+
+  const blocks: string[] = [];
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      const hue = (hueOffset + (x * 13 + y * 17) * options.detail * 30) % 360;
+      const sat = 55 + (options.mode === 'pixel' ? 10 : 20) + Math.sin((x + y) / 3) * 10;
+      const light = 35 + options.smoothness * 25 + Math.cos((x + 1) * (y + 2)) * 2;
+      blocks.push(
+        `<rect x="${x * blockWidth}" y="${y * blockWidth}" width="${blockWidth}" height="${blockWidth}" fill="hsl(${hue.toFixed(1)}, ${sat.toFixed(0)}%, ${light.toFixed(0)}%)" fill-opacity="${opacity}" />`,
+      );
+    }
+  }
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" aria-label="Vector preview" shape-rendering="${
+    options.mode === 'pixel' ? 'crispEdges' : 'geometricPrecision'
+  }">${blocks.join('')}</svg>`;
+}
+
+function formatPercent(value: number) {
+  return `${Math.round(value * 100)}%`;
+}
+
+function App() {
+  const [options, setOptions] = useState<UiOptions>(defaultOptions);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [pngPreviewUrl, setPngPreviewUrl] = useState<string | null>(null);
+  const [svgMarkup, setSvgMarkup] = useState<string>('');
+
+  useEffect(() => {
+    setSvgMarkup(generatePlaceholderSvg(options));
+  }, [options]);
+
+  const status = useMemo(() => {
+    if (!selectedFile) return 'Upload a PNG to begin';
+    return `Ready to vectorize ${selectedFile.name}`;
+  }, [selectedFile]);
+
+  function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) {
+      setSelectedFile(null);
+      setPngPreviewUrl(null);
+      return;
+    }
+
+    setSelectedFile(file);
+    const url = URL.createObjectURL(file);
+    setPngPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return url;
+    });
+  }
+
+  function updateOption<K extends keyof UiOptions>(key: K, value: UiOptions[K]) {
+    setOptions((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function applyPreset(presetOptions: UiOptions) {
+    setOptions(presetOptions);
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-slate-100">
+      <header className="border-b border-slate-800 bg-slate-900/40 backdrop-blur">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
+          <div>
+            <p className="text-xs uppercase tracking-[0.2em] text-emerald-300">Open Vectorizer</p>
+            <h1 className="text-xl font-semibold text-white">PNG → SVG Playground</h1>
+            <p className="text-sm text-slate-400">Live controls to mirror the CLI and upcoming WASM build.</p>
+          </div>
+          <div className="flex items-center gap-3 text-sm text-slate-300">
+            <span className="inline-flex h-2 w-2 rounded-full bg-emerald-400" aria-hidden />
+            <span>{status}</span>
+          </div>
+        </div>
+      </header>
+
+      <main className="mx-auto flex max-w-6xl flex-col gap-6 px-6 py-8 lg:flex-row">
+        <section className="w-full space-y-6 lg:w-1/3">
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-5 shadow-lg shadow-emerald-900/10">
+            <h2 className="mb-4 text-lg font-semibold text-white">Input</h2>
+            <label
+              htmlFor="file"
+              className={clsx(
+                'flex h-32 cursor-pointer items-center justify-center rounded-xl border-2 border-dashed border-slate-700 bg-slate-900/60 text-center transition hover:border-emerald-400 hover:bg-slate-900/80',
+                selectedFile ? 'text-slate-50' : 'text-slate-400',
+              )}
+            >
+              <div className="space-y-1">
+                <p className="text-sm font-medium">
+                  {selectedFile ? 'Change PNG file' : 'Drop a PNG or click to browse'}
+                </p>
+                <p className="text-xs text-slate-500">Up to 10 MB • Anti-aliased assets work best</p>
+              </div>
+              <input id="file" type="file" accept="image/png" className="sr-only" onChange={handleFileChange} />
+            </label>
+          </div>
+
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-5 shadow-lg shadow-emerald-900/10">
+            <h2 className="mb-4 text-lg font-semibold text-white">Presets</h2>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
+              {presets.map((preset) => (
+                <button
+                  key={preset.label}
+                  type="button"
+                  onClick={() => applyPreset(preset.options)}
+                  className={clsx(
+                    'w-full rounded-lg border px-3 py-2 text-left text-sm font-medium transition',
+                    options === preset.options
+                      ? 'border-emerald-400 bg-emerald-500/10 text-white'
+                      : 'border-slate-700 bg-slate-900/60 text-slate-200 hover:border-emerald-400/70 hover:bg-slate-900',
+                  )}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-5 shadow-lg shadow-emerald-900/10 space-y-4">
+            <h2 className="text-lg font-semibold text-white">Controls</h2>
+
+            <div>
+              <div className="flex items-center justify-between text-sm text-slate-300">
+                <label htmlFor="colors" className="font-medium text-white">
+                  Colors
+                </label>
+                <span className="text-slate-400">{options.colors} / {MAX_COLORS}</span>
+              </div>
+              <input
+                id="colors"
+                type="range"
+                min={2}
+                max={MAX_COLORS}
+                value={options.colors}
+                onChange={(e) => updateOption('colors', Number(e.target.value))}
+                className="mt-2 h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-800 accent-emerald-400"
+              />
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between text-sm text-slate-300">
+                <label htmlFor="detail" className="font-medium text-white">
+                  Detail
+                </label>
+                <span className="text-slate-400">{formatPercent(options.detail)}</span>
+              </div>
+              <input
+                id="detail"
+                type="range"
+                min={0.1}
+                max={1}
+                step={0.01}
+                value={options.detail}
+                onChange={(e) => updateOption('detail', Number(e.target.value))}
+                className="mt-2 h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-800 accent-emerald-400"
+              />
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between text-sm text-slate-300">
+                <label htmlFor="smoothness" className="font-medium text-white">
+                  Smoothness
+                </label>
+                <span className="text-slate-400">{formatPercent(options.smoothness)}</span>
+              </div>
+              <input
+                id="smoothness"
+                type="range"
+                min={0.1}
+                max={1}
+                step={0.01}
+                value={options.smoothness}
+                onChange={(e) => updateOption('smoothness', Number(e.target.value))}
+                className="mt-2 h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-800 accent-emerald-400"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-sm font-medium text-white">Mode</p>
+              <div className="grid grid-cols-3 gap-2 text-sm">
+                {(['logo', 'poster', 'pixel'] as Mode[]).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => updateOption('mode', mode)}
+                    className={clsx(
+                      'rounded-lg border px-3 py-2 capitalize transition',
+                      options.mode === mode
+                        ? 'border-emerald-400 bg-emerald-500/10 text-white'
+                        : 'border-slate-700 bg-slate-900/60 text-slate-200 hover:border-emerald-400/70 hover:bg-slate-900',
+                    )}
+                  >
+                    {mode === 'pixel' ? 'Pixel Art' : mode}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="w-full space-y-4 lg:w-2/3">
+          <div className="flex flex-col gap-3 rounded-2xl border border-slate-800 bg-slate-900/40 p-5 shadow-lg shadow-emerald-900/10">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <h2 className="text-lg font-semibold text-white">Preview</h2>
+                <p className="text-sm text-slate-400">Original PNG on the left, vector preview on the right.</p>
+              </div>
+              <div className="flex items-center gap-2 text-xs text-slate-400">
+                <span className="rounded-full bg-emerald-500/20 px-2 py-1 font-semibold text-emerald-200">
+                  Live Stub
+                </span>
+                <span className="rounded-full bg-slate-800 px-2 py-1 font-semibold text-slate-200">WASM soon</span>
+              </div>
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-2">
+              <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950/60">
+                <div className="border-b border-slate-800 px-4 py-2 text-xs uppercase tracking-[0.15em] text-slate-400">
+                  PNG Input
+                </div>
+                <div className="flex h-72 items-center justify-center bg-slate-950">
+                  {pngPreviewUrl ? (
+                    <img src={pngPreviewUrl} alt="Uploaded PNG preview" className="max-h-full max-w-full object-contain" />
+                  ) : (
+                    <p className="text-sm text-slate-500">No file selected yet.</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950/60">
+                <div className="border-b border-slate-800 px-4 py-2 text-xs uppercase tracking-[0.15em] text-slate-400">
+                  SVG Preview (placeholder)
+                </div>
+                <div className="flex h-72 items-center justify-center bg-slate-950">
+                  {svgMarkup ? (
+                    <div
+                      className="h-full w-full"
+                      role="img"
+                      aria-label="Vectorized preview"
+                      dangerouslySetInnerHTML={{ __html: svgMarkup }}
+                    />
+                  ) : (
+                    <p className="text-sm text-slate-500">Adjust settings to generate a preview.</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-emerald-900/60 bg-emerald-500/5 p-4 text-sm text-emerald-100">
+            <p className="font-semibold text-emerald-200">Next up: wire the WASM core</p>
+            <p className="text-emerald-100/90">
+              This UI is ready to call into the Rust vectorizer once the wasm_bindgen entry point lands. The controls mirror the CL
+              I options so we can pipe the outputs straight into the engine.
+            </p>
+          </div>
+        </section>
+      </main>
+    </div>
+  );
+}
+
+export default App;

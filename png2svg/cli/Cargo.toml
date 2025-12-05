@@ -1,0 +1,12 @@
+[package]
+name = "png2svg-cli"
+version = "0.1.0"
+edition = "2021"
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+png2svg-core = { path = "../core" }

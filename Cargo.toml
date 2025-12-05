@@ -1,0 +1,19 @@
+[workspace]
+members = [
+    "png2svg/core",
+    "png2svg/cli",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+authors = ["Open Vectorizer Contributors"]
+license = "MIT"
+repository = "https://example.com/open-vectorizer"
+
+[workspace.dependencies]
+anyhow = "1.0"
+clap = { version = "4.5", features = ["derive"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "ico", "bmp", "pnm", "tga", "tiff"] }
+serde = { version = "1.0", features = ["derive"] }
+thiserror = "1.0"

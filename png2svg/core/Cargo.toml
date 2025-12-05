@@ -1,0 +1,13 @@
+[package]
+name = "png2svg-core"
+version = "0.1.0"
+edition = "2021"
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+image.workspace = true
+serde.workspace = true
+thiserror.workspace = true

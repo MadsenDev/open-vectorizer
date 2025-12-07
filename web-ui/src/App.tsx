@@ -1,7 +1,7 @@
 import { ChangeEvent, useEffect, useMemo, useState } from 'react';
 import clsx from 'clsx';
 
-type WasmModule = typeof import('/pkg/png2svg_core.js');
+type WasmModule = typeof import('./pkg/png2svg_core.js');
 
 const MAX_COLORS = 32;
 
@@ -77,7 +77,7 @@ function App() {
 
     async function loadWasm() {
       try {
-        const module: WasmModule = await import('/pkg/png2svg_core.js');
+        const module: WasmModule = await import('./pkg/png2svg_core.js');
         await module.default();
         if (cancelled) return;
 
@@ -89,7 +89,7 @@ function App() {
         console.error('[open-vectorizer] failed to load wasm', error);
         if (cancelled) return;
         setWasmError(
-          'Failed to load WASM build. Run `wasm-pack build png2svg/core --target web --out-dir web-ui/public/pkg --release` first.',
+          'Failed to load WASM build. Run `wasm-pack build png2svg/core --target web --out-dir ../../web-ui/src/pkg --release` from the png2svg/core directory, or move the generated files to web-ui/src/pkg.',
         );
       }
     }
@@ -133,14 +133,38 @@ function App() {
   useEffect(() => {
     if (!wasmReady || !wasmModule || !selectedFile) return;
 
+    const currentFile = selectedFile;
+    const currentModule = wasmModule;
     let cancelled = false;
     setIsVectorizing(true);
     setVectorizeError(null);
 
     async function runVectorizer() {
       try {
-        const buffer = await selectedFile.arrayBuffer();
-        const svg = wasmModule.png_to_svg_wasm(new Uint8Array(buffer), JSON.stringify(options));
+        const buffer = await currentFile.arrayBuffer();
+        const optionsJson = JSON.stringify(options);
+        console.log('[open-vectorizer] vectorizing with options:', optionsJson);
+        const svg = currentModule.png_to_svg_wasm(new Uint8Array(buffer), optionsJson);
+        console.log('[open-vectorizer] generated SVG length:', svg.length);
+        console.log('[open-vectorizer] SVG preview (first 500 chars):', svg.substring(0, 500));
+        
+        // Check for unique colors in the SVG
+        const colorMatches = svg.matchAll(/fill="#([0-9a-f]{6})"/gi);
+        const uniqueColors = new Set<string>();
+        let colorCount = 0;
+        for (const match of colorMatches) {
+          uniqueColors.add(match[1].toLowerCase());
+          colorCount++;
+          if (colorCount > 1000) break; // Sample first 1000 to avoid performance issues
+        }
+        console.log('[open-vectorizer] unique colors found (sampled):', uniqueColors.size, 'colors:', Array.from(uniqueColors).slice(0, 10));
+        
+        // Check viewBox dimensions
+        const viewBoxMatch = svg.match(/viewBox="0 0 (\d+) (\d+)"/);
+        if (viewBoxMatch) {
+          console.log('[open-vectorizer] SVG dimensions:', viewBoxMatch[1], 'x', viewBoxMatch[2]);
+        }
+        
         if (!cancelled) {
           setSvgMarkup(svg);
         }
@@ -367,13 +391,14 @@ function App() {
                 <div className="border-b border-slate-800 px-4 py-2 text-xs uppercase tracking-[0.15em] text-slate-400">
                   SVG Preview {selectedFile && wasmReady ? '(rendered)' : '(placeholder)'}
                 </div>
-                <div className="flex h-72 items-center justify-center bg-slate-950">
+                <div className="flex h-72 items-center justify-center bg-slate-950 overflow-auto p-4">
                   {svgMarkup ? (
                     <div
-                      className="h-full w-full"
+                      className="h-full w-full flex items-center justify-center [&>svg]:max-h-full [&>svg]:max-w-full [&>svg]:w-auto [&>svg]:h-auto [&>svg]:block"
                       role="img"
                       aria-label="Vectorized preview"
                       dangerouslySetInnerHTML={{ __html: svgMarkup }}
+                      style={{ minHeight: '100%', minWidth: '100%' }}
                     />
                   ) : (
                     <p className="text-sm text-slate-500">Adjust settings to generate a preview.</p>
@@ -397,8 +422,8 @@ function App() {
             <p className="font-semibold text-emerald-200">WASM pipeline ready</p>
             <p className="text-emerald-100/90">
               Build the WebAssembly bundle with
-              <code className="mx-1 rounded bg-emerald-500/10 px-1 py-0.5 font-mono text-xs text-emerald-100">wasm-pack build png2svg/core --target web --out-dir web-ui/public/pkg --release</code>
-              and restart <code className="mx-1 rounded bg-emerald-500/10 px-1 py-0.5 font-mono text-xs text-emerald-100">npm run dev</code> to serve the module locally.
+              <code className="mx-1 rounded bg-emerald-500/10 px-1 py-0.5 font-mono text-xs text-emerald-100">wasm-pack build --target web --out-dir ../../web-ui/src/pkg --release</code>
+              from the <code className="mx-1 rounded bg-emerald-500/10 px-1 py-0.5 font-mono text-xs text-emerald-100">png2svg/core</code> directory.
             </p>
           </div>
         </section>

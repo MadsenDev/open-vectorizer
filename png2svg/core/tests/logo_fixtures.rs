@@ -118,3 +118,54 @@ fn logo_mode_can_emit_smoothed_paths() {
     assert!(svg.contains("<path"));
     assert!(svg.contains(" C "), "smooth logo mode should be allowed to use curves");
 }
+
+#[test]
+fn logo_mode_removes_isolated_specks_by_default() {
+    let image = RgbaImage::from_fn(8, 8, |x, y| {
+        let in_mark = (1..=4).contains(&x) && (1..=4).contains(&y);
+        let is_speck = (x, y) == (7, 0) || (x, y) == (0, 7);
+
+        if in_mark || is_speck {
+            Rgba([10, 10, 10, 255])
+        } else {
+            Rgba([0, 0, 0, 0])
+        }
+    });
+
+    let svg = vectorize_fixture(
+        image,
+        VectorizeOptions {
+            colors: 2,
+            mode: VectorizeMode::Logo,
+            ..VectorizeOptions::default()
+        },
+    );
+
+    assert_eq!(svg.matches("<path").count(), 1);
+}
+
+#[test]
+fn high_detail_logo_mode_preserves_tiny_components() {
+    let image = RgbaImage::from_fn(8, 8, |x, y| {
+        let in_mark = (1..=4).contains(&x) && (1..=4).contains(&y);
+        let is_detail = (x, y) == (7, 0);
+
+        if in_mark || is_detail {
+            Rgba([10, 10, 10, 255])
+        } else {
+            Rgba([0, 0, 0, 0])
+        }
+    });
+
+    let svg = vectorize_fixture(
+        image,
+        VectorizeOptions {
+            colors: 2,
+            detail: 0.9,
+            mode: VectorizeMode::Logo,
+            ..VectorizeOptions::default()
+        },
+    );
+
+    assert_eq!(svg.matches("<path").count(), 2);
+}

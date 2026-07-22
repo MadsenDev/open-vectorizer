@@ -913,6 +913,12 @@ fn points_to_subpath(points: &[Point], options: &VectorizeOptions) -> String {
         return String::new();
     }
 
+    if matches!(options.mode, VectorizeMode::Auto | VectorizeMode::Logo) {
+        if let Some(circle) = fit_circle(points) {
+            return circle_to_subpath(circle);
+        }
+    }
+
     let mut path = String::new();
     let smoothness = options.smoothness.clamp(0.0, 1.0);
 
@@ -933,6 +939,102 @@ fn points_to_subpath(points: &[Point], options: &VectorizeOptions) -> String {
     
     path.push_str(" Z");
     path
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Circle {
+    center: Point,
+    radius: f32,
+}
+
+fn fit_circle(points: &[Point]) -> Option<Circle> {
+    let ring = closed_ring_points(points)?;
+    if ring.len() < 12 {
+        return None;
+    }
+
+    let (min_x, max_x, min_y, max_y) = bounds(ring);
+    let width = max_x - min_x;
+    let height = max_y - min_y;
+    if width < 6.0 || height < 6.0 {
+        return None;
+    }
+
+    let aspect_error = (width - height).abs() / width.max(height);
+    if aspect_error > 0.08 {
+        return None;
+    }
+
+    let center = Point::new((min_x + max_x) / 2.0, (min_y + max_y) / 2.0);
+    let expected_radius = (width + height) / 4.0;
+    let mut max_error = 0.0f32;
+    let mut total_error = 0.0f32;
+
+    for &point in ring {
+        let radius = distance_between(point, center);
+        let error = (radius - expected_radius).abs();
+        max_error = max_error.max(error);
+        total_error += error;
+    }
+
+    let mean_error = total_error / ring.len() as f32;
+    if mean_error / expected_radius > 0.09 || max_error / expected_radius > 0.22 {
+        return None;
+    }
+
+    Some(Circle {
+        center,
+        radius: expected_radius,
+    })
+}
+
+fn closed_ring_points(points: &[Point]) -> Option<&[Point]> {
+    if points.first() == points.last() && points.len() > 1 {
+        Some(&points[..points.len() - 1])
+    } else {
+        None
+    }
+}
+
+fn bounds(points: &[Point]) -> (f32, f32, f32, f32) {
+    let mut min_x = f32::INFINITY;
+    let mut max_x = f32::NEG_INFINITY;
+    let mut min_y = f32::INFINITY;
+    let mut max_y = f32::NEG_INFINITY;
+
+    for &point in points {
+        min_x = min_x.min(point.x);
+        max_x = max_x.max(point.x);
+        min_y = min_y.min(point.y);
+        max_y = max_y.max(point.y);
+    }
+
+    (min_x, max_x, min_y, max_y)
+}
+
+fn distance_between(a: Point, b: Point) -> f32 {
+    let dx = a.x - b.x;
+    let dy = a.y - b.y;
+    (dx * dx + dy * dy).sqrt()
+}
+
+fn circle_to_subpath(circle: Circle) -> String {
+    let cx = circle.center.x;
+    let cy = circle.center.y;
+    let r = circle.radius;
+    format!(
+        "M {:.2} {:.2} A {:.2} {:.2} 0 1 0 {:.2} {:.2} A {:.2} {:.2} 0 1 0 {:.2} {:.2} Z",
+        cx + r,
+        cy,
+        r,
+        r,
+        cx - r,
+        cy,
+        r,
+        r,
+        cx + r,
+        cy
+    )
 }
 
 fn write_closed_bezier_path(path: &mut String, points: &[Point], smoothness: f32) {

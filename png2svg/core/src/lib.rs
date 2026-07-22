@@ -1,5 +1,5 @@
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write as FmtWrite;
-use std::collections::{HashMap, HashSet};
 
 use image::{Rgba, RgbaImage};
 use serde::{Deserialize, Serialize};
@@ -386,58 +386,16 @@ fn render_svg(quantized: &QuantizedImage, options: &VectorizeOptions) -> String 
             continue; // Skip transparent
         }
 
-        // Find connected components for this color
         let components = find_connected_components(quantized, color_idx);
-        
+
         for component in components {
-            // Try to trace contour for this component
-            // If tracing fails, create a bounding polygon to ensure all components are rendered
-            if let Some(contour) = trace_contour(quantized, &component, color_idx) {
-                // For logo mode, skip simplification entirely for 1-1 match
-                let simplified = match options.mode {
-                    VectorizeMode::Logo => contour, // No simplification - preserve every point
-                    VectorizeMode::Poster => {
-                        let tolerance = options.tolerance * 0.5;
-                        rdp_simplify(&contour, tolerance.max(0.3))
-                    },
-                    VectorizeMode::PixelArt => {
-                        let tolerance = options.tolerance * 2.0;
-                        rdp_simplify(&contour, tolerance)
-                    },
-                };
-                
-                // Generate SVG path
-                let path_d = points_to_path(&simplified, options);
-                if !path_d.is_empty() {
-                    paths_by_color.entry(color_idx).or_insert_with(Vec::new).push(path_d);
-                }
-            } else {
-                // Tracing failed - create a simple bounding polygon as fallback
-                // This ensures all components are rendered, even if contour tracing fails
-                let min_x = component.iter().map(|p| p.0).min().unwrap_or(0);
-                let max_x = component.iter().map(|p| p.0).max().unwrap_or(0);
-                let min_y = component.iter().map(|p| p.1).min().unwrap_or(0);
-                let max_y = component.iter().map(|p| p.1).max().unwrap_or(0);
-                
-                if max_x > min_x && max_y > min_y {
-                    let path_d = format!("M {} {} L {} {} L {} {} L {} {} Z",
-                        min_x, min_y,
-                        max_x + 1, min_y,
-                        max_x + 1, max_y + 1,
-                        min_x, max_y + 1
-                    );
-                    paths_by_color.entry(color_idx).or_insert_with(Vec::new).push(path_d);
-                } else if component.len() == 1 {
-                    // Single pixel fallback
-                    let (px, py) = component.iter().next().unwrap();
-                    let path_d = format!("M {} {} L {} {} L {} {} L {} {} Z",
-                        px, py,
-                        px + 1, py,
-                        px + 1, py + 1,
-                        px, py + 1
-                    );
-                    paths_by_color.entry(color_idx).or_insert_with(Vec::new).push(path_d);
-                }
+            let contours = trace_contours(&component);
+            let path_d = contours_to_path(&contours, options);
+            if !path_d.is_empty() {
+                paths_by_color
+                    .entry(color_idx)
+                    .or_insert_with(Vec::new)
+                    .push(path_d);
             }
         }
     }
@@ -457,7 +415,7 @@ fn render_svg(quantized: &QuantizedImage, options: &VectorizeOptions) -> String 
         .ok();
         
         for path_d in paths {
-            writeln!(svg, "    <path d=\"{}\"/>", path_d).ok();
+            writeln!(svg, "    <path fill-rule=\"evenodd\" d=\"{}\"/>", path_d).ok();
         }
         
         writeln!(svg, "  </g>").ok();
@@ -547,194 +505,90 @@ fn find_connected_components(quantized: &QuantizedImage, color_idx: usize) -> Ve
     components
 }
 
-// Trace contour using simple, reliable boundary following
-fn trace_contour(
-    quantized: &QuantizedImage,
-    component: &HashSet<(i32, i32)>,
-    color_idx: usize,
-) -> Option<Vec<Point>> {
+type GridPoint = (i32, i32);
+
+// Trace exact cell-edge contours for a connected component. Unlike boundary-pixel
+// walking, this follows the edges between filled and empty cells, so the resulting
+// path describes the actual raster silhouette and can include inner holes.
+fn trace_contours(component: &HashSet<(i32, i32)>) -> Vec<Vec<Point>> {
     if component.is_empty() {
-        return None;
+        return Vec::new();
     }
 
-    let width = quantized.width as usize;
-    let height = quantized.height as usize;
-
-    // Build a set of boundary pixels
-    let mut boundary_set = HashSet::new();
+    let mut edges_by_start: BTreeMap<GridPoint, Vec<GridPoint>> = BTreeMap::new();
     for &(x, y) in component {
-        // Check if this pixel is on the boundary
-        let mut is_boundary = false;
-        for dy in -1..=1 {
-            for dx in -1..=1 {
-                if dx == 0 && dy == 0 {
-                    continue;
-                }
-                let nx = x + dx;
-                let ny = y + dy;
-                if nx < 0 || ny < 0 || nx >= width as i32 || ny >= height as i32 {
-                    is_boundary = true;
-                    break;
-                }
-                let nidx = (ny as usize) * width + (nx as usize);
-                if quantized.indices[nidx] != color_idx {
-                    is_boundary = true;
-                    break;
-                }
-            }
-            if is_boundary {
-                break;
-            }
+        if !component.contains(&(x, y - 1)) {
+            push_edge(&mut edges_by_start, (x, y), (x + 1, y));
         }
-        if is_boundary {
-            boundary_set.insert((x, y));
+        if !component.contains(&(x + 1, y)) {
+            push_edge(&mut edges_by_start, (x + 1, y), (x + 1, y + 1));
+        }
+        if !component.contains(&(x, y + 1)) {
+            push_edge(&mut edges_by_start, (x + 1, y + 1), (x, y + 1));
+        }
+        if !component.contains(&(x - 1, y)) {
+            push_edge(&mut edges_by_start, (x, y + 1), (x, y));
         }
     }
 
-    if boundary_set.is_empty() {
-        return None;
-    }
+    let mut contours = Vec::new();
+    while let Some(start) = first_start_with_edges(&edges_by_start) {
+        let mut contour = vec![grid_to_point(start)];
+        let mut current = start;
+        let mut guard = 0usize;
 
-    // Find starting point (top-leftmost)
-    let start = boundary_set.iter().min_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(&b.0))).copied()?;
-
-    // Simple 8-direction neighbors
-    let neighbors = [
-        (-1, -1), (0, -1), (1, -1),
-        (-1, 0),           (1, 0),
-        (-1, 1),  (0, 1),  (1, 1),
-    ];
-
-    let mut contour = Vec::new();
-    let mut current = start;
-    let mut visited = HashSet::new();
-    visited.insert(current);
-
-    // Add first point
-    contour.push(Point::new(current.0 as f32 + 0.5, current.1 as f32 + 0.5));
-
-    // Follow boundary by finding connected boundary pixels
-    loop {
-        let mut best_next = None;
-        let mut best_priority = i32::MAX;
-
-        // Look for next boundary pixel in 8-neighborhood
-        for &(dx, dy) in &neighbors {
-            let nx = current.0 + dx;
-            let ny = current.1 + dy;
-            let candidate = (nx, ny);
-
-            if boundary_set.contains(&candidate) && !visited.contains(&candidate) {
-                // Priority: prefer 4-connected neighbors (cardinal directions) over diagonal
-                // This creates smoother, more predictable paths
-                let is_cardinal = dx == 0 || dy == 0;
-                let priority = if is_cardinal { 0 } else { 1 };
-                if priority < best_priority {
-                    best_priority = priority;
-                    best_next = Some(candidate);
-                } else if priority == best_priority {
-                    // If same priority, prefer the one we found first (maintains direction)
-                    if best_next.is_none() {
-                        best_next = Some(candidate);
-                    }
-                }
-            }
-        }
-
-        if let Some(next) = best_next {
-            contour.push(Point::new(next.0 as f32 + 0.5, next.1 as f32 + 0.5));
-            visited.insert(next);
+        while let Some(next) = pop_edge(&mut edges_by_start, current) {
+            contour.push(grid_to_point(next));
             current = next;
+            guard += 1;
 
-            // Check if we've closed the loop (returned to start)
-            if contour.len() > 3 && current == start {
+            if current == start {
                 break;
             }
-            
-            // Also check if we're close to the start point
-            if contour.len() > 10 {
-                let first = contour[0];
-                let last = contour.last().unwrap();
-                let dist = ((last.x - first.x).powi(2) + (last.y - first.y).powi(2)).sqrt();
-                if dist < 1.5 {
-                    // Close to start, add it and break
-                    contour.push(contour[0]);
-                    break;
-                }
-            }
-        } else {
-            // No immediate neighbor found - check if there are remaining boundary pixels
-            let remaining: Vec<_> = boundary_set.iter().filter(|p| !visited.contains(p)).collect();
-            if remaining.is_empty() {
-                // All boundary pixels visited, close the path
-                if contour.len() > 2 {
-                    contour.push(contour[0]);
-                }
-                break;
-            }
-            
-            // Try to find a nearby unvisited boundary pixel
-            // Check in a slightly larger radius (up to 3 pixels away)
-            let mut found_nearby = false;
-            for radius in 2..=3 {
-                for &(dx, dy) in &neighbors {
-                    let check_x = current.0 + dx * radius;
-                    let check_y = current.1 + dy * radius;
-                    let candidate = (check_x, check_y);
-                    
-                    if boundary_set.contains(&candidate) && !visited.contains(&candidate) {
-                        contour.push(Point::new(candidate.0 as f32 + 0.5, candidate.1 as f32 + 0.5));
-                        visited.insert(candidate);
-                        current = candidate;
-                        found_nearby = true;
-                        break;
-                    }
-                }
-                if found_nearby {
-                    break;
-                }
-            }
-            
-            if !found_nearby {
-                // No nearby pixel found - this might be a separate component or the path is complete
-                // Close the current path and see if we can start a new one
-                if contour.len() > 2 {
-                    contour.push(contour[0]);
-                }
+            if guard > component.len() * 8 + 8 {
                 break;
             }
         }
 
-        // Prevent infinite loops
-        if contour.len() > boundary_set.len() * 2 {
-            break;
+        if contour.len() >= 4 && contour.first() == contour.last() {
+            contours.push(contour);
         }
     }
 
-    if contour.len() < 3 {
-        return None;
-    }
+    contours
+}
 
-    // Ensure path is closed properly
-    if contour.len() < 3 {
-        return None;
-    }
-    
-    let first = contour[0];
-    let last = *contour.last().unwrap();
-    let dist = ((last.x - first.x).powi(2) + (last.y - first.y).powi(2)).sqrt();
-    if dist > 0.5 {
-        // Not closed, add first point
-        contour.push(first);
-    }
+fn push_edge(
+    edges_by_start: &mut BTreeMap<GridPoint, Vec<GridPoint>>,
+    start: GridPoint,
+    end: GridPoint,
+) {
+    edges_by_start.entry(start).or_default().push(end);
+}
 
-    // Don't filter out small paths - they might be valid small components
-    // Only filter if it's truly invalid (less than 3 points)
-    if contour.len() < 3 {
-        return None;
-    }
+fn first_start_with_edges(
+    edges_by_start: &BTreeMap<GridPoint, Vec<GridPoint>>,
+) -> Option<GridPoint> {
+    edges_by_start
+        .iter()
+        .find_map(|(&start, ends)| if ends.is_empty() { None } else { Some(start) })
+}
 
-    Some(contour)
+fn pop_edge(
+    edges_by_start: &mut BTreeMap<GridPoint, Vec<GridPoint>>,
+    start: GridPoint,
+) -> Option<GridPoint> {
+    let ends = edges_by_start.get_mut(&start)?;
+    let next = ends.pop();
+    let should_remove = ends.is_empty();
+    if should_remove {
+        edges_by_start.remove(&start);
+    }
+    next
+}
+
+fn grid_to_point(point: GridPoint) -> Point {
+    Point::new(point.0 as f32, point.1 as f32)
 }
 
 // Ramer-Douglas-Peucker path simplification
@@ -796,8 +650,42 @@ fn point_to_line_dist_sq(p: Point, line_p1: Point, line_p2: Point) -> f32 {
     px * px + py * py
 }
 
-// Convert points to SVG path - simple and reliable
-fn points_to_path(points: &[Point], options: &VectorizeOptions) -> String {
+fn contours_to_path(contours: &[Vec<Point>], options: &VectorizeOptions) -> String {
+    let mut path = String::new();
+    for contour in contours {
+        let simplified = simplify_contour(contour, options);
+        let subpath = points_to_subpath(&simplified, options);
+        if !subpath.is_empty() {
+            if !path.is_empty() {
+                path.push(' ');
+            }
+            path.push_str(&subpath);
+        }
+    }
+    path
+}
+
+fn simplify_contour(contour: &[Point], options: &VectorizeOptions) -> Vec<Point> {
+    let tolerance = match options.mode {
+        VectorizeMode::Logo => (options.tolerance * 0.35).clamp(0.15, 1.5),
+        VectorizeMode::Poster => (options.tolerance * 0.75).clamp(0.3, 3.0),
+        VectorizeMode::PixelArt => 0.0,
+    };
+
+    if tolerance <= 0.0 {
+        contour.to_vec()
+    } else {
+        let simplified = rdp_simplify(contour, tolerance);
+        if simplified.len() >= 4 {
+            simplified
+        } else {
+            contour.to_vec()
+        }
+    }
+}
+
+// Convert one closed contour to an SVG subpath.
+fn points_to_subpath(points: &[Point], options: &VectorizeOptions) -> String {
     if points.len() < 2 {
         return String::new();
     }
@@ -849,10 +737,7 @@ fn points_to_path(points: &[Point], options: &VectorizeOptions) -> String {
 }
 
 fn opacity_from_options(alpha: u8, _options: &VectorizeOptions) -> f32 {
-    // For vectorization, we want full opacity based on the alpha channel
-    // Don't use smoothness to affect opacity - that was causing paths to be invisible
-    let base = alpha as f32 / 255.0;
-    base.max(0.95) // Ensure paths are visible (at least 95% opacity for non-transparent pixels)
+    alpha as f32 / 255.0
 }
 
 fn to_hex(color: [u8; 4]) -> String {
@@ -866,6 +751,7 @@ mod tests {
     use super::*;
     use image::{codecs::png::PngEncoder, ColorType, DynamicImage, ImageEncoder};
     use serde_json::json;
+    use std::collections::HashSet;
 
     #[test]
     fn creates_svg_output() {
@@ -946,5 +832,61 @@ mod tests {
         assert_eq!(quantized.height, 2);
         assert_eq!(quantized.indices.len(), 6);
         assert!(!quantized.palette.is_empty());
+    }
+
+    #[test]
+    fn traces_single_pixel_as_cell_edges() {
+        let component = HashSet::from([(2, 3)]);
+        let contours = trace_contours(&component);
+
+        assert_eq!(contours.len(), 1);
+        assert_eq!(
+            contours[0],
+            vec![
+                Point::new(2.0, 3.0),
+                Point::new(3.0, 3.0),
+                Point::new(3.0, 4.0),
+                Point::new(2.0, 4.0),
+                Point::new(2.0, 3.0),
+            ]
+        );
+    }
+
+    #[test]
+    fn traces_inner_holes_as_extra_contours() {
+        let component = HashSet::from([
+            (0, 0),
+            (1, 0),
+            (2, 0),
+            (0, 1),
+            (2, 1),
+            (0, 2),
+            (1, 2),
+            (2, 2),
+        ]);
+        let contours = trace_contours(&component);
+
+        assert_eq!(contours.len(), 2);
+        assert!(contours.iter().all(|contour| contour.first() == contour.last()));
+
+        let options = VectorizeOptions {
+            mode: VectorizeMode::PixelArt,
+            ..VectorizeOptions::default()
+        };
+        let path = contours_to_path(&contours, &options);
+        assert_eq!(path.matches("M ").count(), 2);
+    }
+
+    #[test]
+    fn rendered_paths_use_even_odd_fill_for_cutouts() {
+        let quantized = QuantizedImage {
+            palette: vec![[0, 0, 0, 255], [0, 0, 0, 0]],
+            indices: vec![0, 0, 0, 0, 1, 0, 0, 0, 0],
+            width: 3,
+            height: 3,
+        };
+        let svg = render_svg(&quantized, &VectorizeOptions::default());
+
+        assert!(svg.contains("fill-rule=\"evenodd\""));
     }
 }

@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 use std::fmt::Write as FmtWrite;
 
 use image::RgbaImage;
@@ -439,7 +439,7 @@ fn render_svg(quantized: &QuantizedImage, options: &VectorizeOptions) -> String 
     .ok();
 
     // Group paths by color
-    let mut paths_by_color: HashMap<usize, Vec<String>> = HashMap::new();
+    let mut paths_by_color: BTreeMap<usize, Vec<String>> = BTreeMap::new();
 
     // For each color, find connected components and trace contours
     for (color_idx, &color) in quantized.palette.iter().enumerate() {

@@ -141,12 +141,42 @@ fn default_logo_mode_smooths_round_marks() {
         },
     );
 
-    assert!(svg.contains(" C "), "default logo mode should curve round contours");
+    assert!(
+        svg.contains(" C ") || svg.contains(" A "),
+        "default logo mode should curve round contours"
+    );
     assert_eq!(svg.matches("M ").count(), 2, "ring should keep outer and inner contours");
     assert!(
         svg.matches(" L ").count() < 4,
         "round logo contours should not be dominated by stair-step line segments"
     );
+}
+
+#[test]
+fn logo_mode_emits_true_arcs_for_round_marks() {
+    let image = RgbaImage::from_fn(128, 128, |x, y| {
+        let dx = x as i32 - 64;
+        let dy = y as i32 - 64;
+        let dist_sq = dx * dx + dy * dy;
+        if (28 * 28..=50 * 50).contains(&dist_sq) {
+            Rgba([30, 30, 34, 255])
+        } else {
+            Rgba([0, 0, 0, 0])
+        }
+    });
+
+    let svg = vectorize_fixture(
+        image,
+        VectorizeOptions {
+            colors: 2,
+            mode: VectorizeMode::Logo,
+            ..VectorizeOptions::default()
+        },
+    );
+
+    assert_eq!(svg.matches("M ").count(), 2, "ring should keep outer and inner contours");
+    assert_eq!(svg.matches(" A ").count(), 4, "round ring contours should use circular arcs");
+    assert!(!svg.contains(" C "), "true circles should not fall back to generic Beziers");
 }
 
 #[test]

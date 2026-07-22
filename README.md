@@ -2,6 +2,14 @@
 
 Open Vectorizer is an in-progress, fully open-source PNG → SVG converter. The project aims to deliver a Rust core engine, a friendly CLI, and a Web UI powered by WebAssembly.
 
+## Project status
+
+Open Vectorizer is paused. The current implementation is experimental and does not yet meet the quality bar for automatic logo vectorization.
+
+The goal was not just to expose tracing knobs, but to make a tool that can take a logo or flat image and produce a clean, smooth, editable SVG with minimal user tuning. The current approach can handle some simple cases, but it still falls short on important shapes such as smooth rings, sharp logo marks, and noisy transparent edges.
+
+The repository remains public as a record of the exploration. Future work would likely need a stronger vectorization strategy, combining deterministic image processing with better primitive detection, path fitting, corner preservation, and possibly ML-assisted segmentation or quality scoring.
+
 ## Repository layout
 
 - `Cargo.toml` – Rust workspace definition for the core engine and CLI.

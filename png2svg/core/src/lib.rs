@@ -56,13 +56,26 @@ impl Default for VectorizeOptions {
 
 pub fn png_to_svg(png_bytes: &[u8], options: &VectorizeOptions) -> Result<String, VectorizeError> {
     let image = image::load_from_memory(png_bytes)?;
-    let rgba = image.to_rgba8();
+    let mut rgba = image.to_rgba8();
     let effective_options = resolve_auto_options(&rgba, options);
+    prepare_image_for_vectorization(&mut rgba, &effective_options);
 
     let quantized = quantize_image(&rgba, &effective_options);
     let svg = render_svg(&quantized, &effective_options);
 
     Ok(svg)
+}
+
+fn prepare_image_for_vectorization(image: &mut RgbaImage, options: &VectorizeOptions) {
+    if !matches!(options.mode, VectorizeMode::Auto | VectorizeMode::Logo) {
+        return;
+    }
+
+    for pixel in image.pixels_mut() {
+        if pixel[3] > 0 {
+            pixel[3] = 255;
+        }
+    }
 }
 
 fn resolve_auto_options(image: &RgbaImage, options: &VectorizeOptions) -> VectorizeOptions {
@@ -929,16 +942,31 @@ fn points_to_subpath(points: &[Point], options: &VectorizeOptions) -> String {
         && smoothness >= 0.35
         && points.len() > 4
     {
-        write_closed_bezier_path(&mut path, points, smoothness);
-    } else {
-        // Simple polyline for accuracy
-        for p in points.iter().skip(1) {
-            write!(path, " L {:.2} {:.2}", p.x, p.y).ok();
+        if should_preserve_polygon_corners(points) {
+            write_line_path(&mut path, points);
+        } else {
+            write_closed_bezier_path(&mut path, points, smoothness);
         }
+    } else {
+        write_line_path(&mut path, points);
     }
     
     path.push_str(" Z");
     path
+}
+
+fn write_line_path(path: &mut String, points: &[Point]) {
+    for p in points.iter().skip(1) {
+        write!(path, " L {:.2} {:.2}", p.x, p.y).ok();
+    }
+}
+
+fn should_preserve_polygon_corners(points: &[Point]) -> bool {
+    let Some(ring) = closed_ring_points(points) else {
+        return false;
+    };
+
+    (4..=24).contains(&ring.len())
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1192,6 +1220,46 @@ mod tests {
 
         assert!(matches!(options.mode, VectorizeMode::PixelArt));
         assert_eq!(options.smoothness, 0.0);
+    }
+
+    #[test]
+    fn logo_preprocessing_flattens_partial_alpha_edges() {
+        let mut image = RgbaImage::from_fn(3, 1, |x, _| match x {
+            0 => Rgba([20, 20, 20, 0]),
+            1 => Rgba([20, 20, 20, 96]),
+            _ => Rgba([20, 20, 20, 255]),
+        });
+        let options = VectorizeOptions {
+            mode: VectorizeMode::Logo,
+            ..VectorizeOptions::default()
+        };
+
+        prepare_image_for_vectorization(&mut image, &options);
+
+        assert_eq!(image.get_pixel(0, 0)[3], 0);
+        assert_eq!(image.get_pixel(1, 0)[3], 255);
+        assert_eq!(image.get_pixel(2, 0)[3], 255);
+    }
+
+    #[test]
+    fn logo_polygon_paths_keep_line_corners() {
+        let points = vec![
+            Point::new(10.0, 10.0),
+            Point::new(30.0, 10.0),
+            Point::new(24.0, 36.0),
+            Point::new(18.0, 36.0),
+            Point::new(10.0, 10.0),
+        ];
+        let options = VectorizeOptions {
+            mode: VectorizeMode::Logo,
+            smoothness: 0.8,
+            ..VectorizeOptions::default()
+        };
+
+        let path = points_to_subpath(&points, &options);
+
+        assert!(path.contains(" L "));
+        assert!(!path.contains(" C "));
     }
 
     #[test]

@@ -169,3 +169,49 @@ fn high_detail_logo_mode_preserves_tiny_components() {
 
     assert_eq!(svg.matches("<path").count(), 2);
 }
+
+#[test]
+fn logo_mode_merges_near_duplicate_brand_colors() {
+    let image = RgbaImage::from_fn(8, 4, |x, _| {
+        if x < 4 {
+            Rgba([220, 40, 40, 255])
+        } else {
+            Rgba([225, 43, 39, 255])
+        }
+    });
+
+    let svg = vectorize_fixture(
+        image,
+        VectorizeOptions {
+            colors: 4,
+            detail: 0.6,
+            mode: VectorizeMode::Logo,
+            ..VectorizeOptions::default()
+        },
+    );
+
+    assert_eq!(svg.matches("<g fill=").count(), 1);
+}
+
+#[test]
+fn pixel_mode_keeps_near_duplicate_colors_distinct() {
+    let image = RgbaImage::from_fn(8, 4, |x, _| {
+        if x < 4 {
+            Rgba([220, 40, 40, 255])
+        } else {
+            Rgba([225, 43, 39, 255])
+        }
+    });
+
+    let svg = vectorize_fixture(
+        image,
+        VectorizeOptions {
+            colors: 4,
+            detail: 1.0,
+            mode: VectorizeMode::PixelArt,
+            ..VectorizeOptions::default()
+        },
+    );
+
+    assert_eq!(svg.matches("<g fill=").count(), 2);
+}

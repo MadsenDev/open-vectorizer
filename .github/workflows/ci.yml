@@ -19,3 +19,12 @@ jobs:
 
       - name: Run workspace tests
         run: cargo test --workspace
+
+      - name: Generate SVG samples
+        run: cargo run -p png2svg-core --example generate_samples
+
+      - name: Upload SVG samples
+        uses: actions/upload-artifact@v4
+        with:
+          name: vectorizer-samples
+          path: target/vectorizer-samples/*.svg

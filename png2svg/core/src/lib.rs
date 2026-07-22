@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write as FmtWrite;
 
-use image::{Rgba, RgbaImage};
+use image::RgbaImage;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -389,7 +389,7 @@ fn render_svg(quantized: &QuantizedImage, options: &VectorizeOptions) -> String 
         let components = find_connected_components(quantized, color_idx);
 
         for component in components {
-            if component.len() < minimum_component_area(options) {
+            if component.len() < minimum_component_area(quantized, options) {
                 continue;
             }
 
@@ -429,7 +429,11 @@ fn render_svg(quantized: &QuantizedImage, options: &VectorizeOptions) -> String 
     svg
 }
 
-fn minimum_component_area(options: &VectorizeOptions) -> usize {
+fn minimum_component_area(quantized: &QuantizedImage, options: &VectorizeOptions) -> usize {
+    if quantized.width * quantized.height <= 16 {
+        return 1;
+    }
+
     match options.mode {
         VectorizeMode::PixelArt => 1,
         VectorizeMode::Logo => {
@@ -775,7 +779,7 @@ fn to_hex(color: [u8; 4]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use image::{codecs::png::PngEncoder, ColorType, DynamicImage, ImageEncoder};
+    use image::{codecs::png::PngEncoder, ColorType, DynamicImage, ImageEncoder, Rgba};
     use serde_json::json;
     use std::collections::HashSet;
 

@@ -215,3 +215,31 @@ fn pixel_mode_keeps_near_duplicate_colors_distinct() {
 
     assert_eq!(svg.matches("<g fill=").count(), 2);
 }
+
+#[test]
+fn vectorization_output_is_deterministic() {
+    let image = RgbaImage::from_fn(10, 10, |x, y| {
+        if (1..=4).contains(&x) && (1..=4).contains(&y) {
+            Rgba([220, 40, 40, 255])
+        } else if (5..=8).contains(&x) && (5..=8).contains(&y) {
+            Rgba([40, 90, 220, 255])
+        } else if (x, y) == (8, 1) {
+            Rgba([20, 20, 20, 255])
+        } else {
+            Rgba([0, 0, 0, 0])
+        }
+    });
+    let options = VectorizeOptions {
+        colors: 4,
+        detail: 0.7,
+        mode: VectorizeMode::Logo,
+        ..VectorizeOptions::default()
+    };
+    let png = encode_png(&image);
+    let first = png_to_svg(&png, &options).expect("fixture should vectorize");
+
+    for _ in 0..10 {
+        let next = png_to_svg(&png, &options).expect("fixture should vectorize");
+        assert_eq!(first, next);
+    }
+}

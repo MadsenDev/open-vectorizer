@@ -389,6 +389,10 @@ fn render_svg(quantized: &QuantizedImage, options: &VectorizeOptions) -> String 
         let components = find_connected_components(quantized, color_idx);
 
         for component in components {
+            if component.len() < minimum_component_area(options) {
+                continue;
+            }
+
             let contours = trace_contours(&component);
             let path_d = contours_to_path(&contours, options);
             if !path_d.is_empty() {
@@ -423,6 +427,28 @@ fn render_svg(quantized: &QuantizedImage, options: &VectorizeOptions) -> String 
 
     svg.push_str("</svg>");
     svg
+}
+
+fn minimum_component_area(options: &VectorizeOptions) -> usize {
+    match options.mode {
+        VectorizeMode::PixelArt => 1,
+        VectorizeMode::Logo => {
+            if options.detail >= 0.85 {
+                1
+            } else if options.detail >= 0.55 {
+                2
+            } else {
+                4
+            }
+        }
+        VectorizeMode::Poster => {
+            if options.detail >= 0.8 {
+                2
+            } else {
+                4
+            }
+        }
+    }
 }
 
 // Point type for contours with sub-pixel precision
@@ -888,5 +914,48 @@ mod tests {
         let svg = render_svg(&quantized, &VectorizeOptions::default());
 
         assert!(svg.contains("fill-rule=\"evenodd\""));
+    }
+
+    #[test]
+    fn logo_mode_filters_tiny_disconnected_components() {
+        let quantized = QuantizedImage {
+            palette: vec![[0, 0, 0, 255], [0, 0, 0, 0]],
+            indices: vec![
+                0, 0, 0, 1, 1,
+                0, 0, 0, 1, 1,
+                0, 0, 0, 1, 1,
+                1, 1, 1, 1, 1,
+                1, 1, 1, 1, 0,
+            ],
+            width: 5,
+            height: 5,
+        };
+
+        let svg = render_svg(&quantized, &VectorizeOptions::default());
+
+        assert_eq!(svg.matches("<path").count(), 1);
+    }
+
+    #[test]
+    fn pixel_mode_preserves_tiny_disconnected_components() {
+        let quantized = QuantizedImage {
+            palette: vec![[0, 0, 0, 255], [0, 0, 0, 0]],
+            indices: vec![
+                0, 0, 0, 1, 1,
+                0, 0, 0, 1, 1,
+                0, 0, 0, 1, 1,
+                1, 1, 1, 1, 1,
+                1, 1, 1, 1, 0,
+            ],
+            width: 5,
+            height: 5,
+        };
+        let options = VectorizeOptions {
+            mode: VectorizeMode::PixelArt,
+            ..VectorizeOptions::default()
+        };
+        let svg = render_svg(&quantized, &options);
+
+        assert_eq!(svg.matches("<path").count(), 2);
     }
 }

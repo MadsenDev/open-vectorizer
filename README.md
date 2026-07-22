@@ -25,20 +25,20 @@ cargo test
 
 ```bash
 cargo run -p png2svg-cli -- path/to/input.png --output output.svg \
-  --colors 8 --detail 0.5 --smoothness 0.5 --tolerance 1.5 --mode logo
+  --mode auto
 ```
 
-If `--output` is omitted, the SVG is printed to stdout. The current engine performs a lightweight palette reduction and emits merged `<rect>` rows to keep the SVG editable while we build out the full curve-based pipeline.
+If `--output` is omitted, the SVG is printed to stdout. The default `auto` mode inspects the image and chooses a logo, poster, or pixel-art vectorization strategy before tracing paths.
 
 #### Options at a glance
 
-- `--colors` (`2-64`, default `8`): palette size target after quantization. Increase for softer gradients, decrease for graphic shapes.
-- `--detail` (`0.0-1.0`, default `0.5`): how much fine structure to preserve. Higher values keep more small regions.
-- `--smoothness` (`0.0-1.0`, default `0.5`): softens edges; set lower to keep crisp pixel boundaries.
-- `--tolerance` (`0.1-10.0`, default `1.5`): how aggressively nearby segments are merged. Larger values yield fewer, coarser shapes.
-- `--mode` (`logo` | `poster` | `pixel`): presets for common asset types.
+- `--mode` (`auto` | `logo` | `poster` | `pixel`, default `auto`): automatic detection by default, with manual overrides for advanced use.
+- `--colors` (`2-64`, default `8`): palette size target after quantization. In `auto` mode this is inferred from the input.
+- `--detail` (`0.0-1.0`, default `0.5`): how much fine structure to preserve. In `auto` mode this is inferred from the input.
+- `--smoothness` (`0.0-1.0`, default `0.5`): softens edges; set lower to keep crisp pixel boundaries. In `auto` mode this is inferred from the input.
+- `--tolerance` (`0.1-10.0`, default `1.5`): how aggressively nearby segments are merged. In `auto` mode this is inferred from the input.
 
-The CLI will reject out-of-range values with clear errors so you can quickly iterate on settings.
+The CLI will reject out-of-range values with clear errors when you use manual overrides.
 
 ## Roadmap snapshot
 

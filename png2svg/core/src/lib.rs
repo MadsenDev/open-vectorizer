@@ -110,6 +110,7 @@ fn quantize_image(image: &RgbaImage, options: &VectorizeOptions) -> QuantizedIma
     };
     
     let mut palette = build_palette(image, opaque_palette_size.max(1));
+    palette = merge_similar_palette_colors(palette, options);
     
     // Add transparent color to palette if image has transparency
     if has_transparency {
@@ -365,6 +366,66 @@ fn color_distance(a: [u8; 4], b: [u8; 4]) -> u32 {
     let db = a[2] as i32 - b[2] as i32;
     let da = a[3] as i32 - b[3] as i32;
     (dr * dr + dg * dg + db * db + da * da) as u32
+}
+
+fn merge_similar_palette_colors(
+    palette: Vec<[u8; 4]>,
+    options: &VectorizeOptions,
+) -> Vec<[u8; 4]> {
+    let threshold = palette_merge_threshold(options);
+    if threshold == 0 {
+        return palette;
+    }
+
+    let mut merged: Vec<[u8; 4]> = Vec::new();
+    for color in palette {
+        if color[3] == 0 {
+            merged.push(color);
+            continue;
+        }
+
+        if let Some(existing) = merged
+            .iter_mut()
+            .find(|existing| existing[3] > 0 && color_distance(**existing, color) <= threshold)
+        {
+            *existing = average_pair(*existing, color);
+        } else {
+            merged.push(color);
+        }
+    }
+
+    merged
+}
+
+fn palette_merge_threshold(options: &VectorizeOptions) -> u32 {
+    match options.mode {
+        VectorizeMode::PixelArt => 0,
+        VectorizeMode::Logo => {
+            if options.detail >= 0.85 {
+                64
+            } else if options.detail >= 0.55 {
+                196
+            } else {
+                400
+            }
+        }
+        VectorizeMode::Poster => {
+            if options.detail >= 0.8 {
+                144
+            } else {
+                324
+            }
+        }
+    }
+}
+
+fn average_pair(a: [u8; 4], b: [u8; 4]) -> [u8; 4] {
+    [
+        ((a[0] as u16 + b[0] as u16) / 2) as u8,
+        ((a[1] as u16 + b[1] as u16) / 2) as u8,
+        ((a[2] as u16 + b[2] as u16) / 2) as u8,
+        ((a[3] as u16 + b[3] as u16) / 2) as u8,
+    ]
 }
 
 fn render_svg(quantized: &QuantizedImage, options: &VectorizeOptions) -> String {
@@ -961,5 +1022,28 @@ mod tests {
         let svg = render_svg(&quantized, &options);
 
         assert_eq!(svg.matches("<path").count(), 2);
+    }
+
+    #[test]
+    fn logo_mode_merges_near_duplicate_palette_colors() {
+        let palette = merge_similar_palette_colors(
+            vec![[220, 40, 40, 255], [225, 43, 39, 255], [20, 20, 20, 255]],
+            &VectorizeOptions::default(),
+        );
+
+        assert_eq!(palette.len(), 2);
+    }
+
+    #[test]
+    fn pixel_mode_keeps_near_duplicate_palette_colors() {
+        let palette = merge_similar_palette_colors(
+            vec![[220, 40, 40, 255], [225, 43, 39, 255]],
+            &VectorizeOptions {
+                mode: VectorizeMode::PixelArt,
+                ..VectorizeOptions::default()
+            },
+        );
+
+        assert_eq!(palette.len(), 2);
     }
 }

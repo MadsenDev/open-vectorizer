@@ -58,10 +58,10 @@ struct Cli {
     /// Rendering mode hint.
     #[arg(
         long,
-        default_value = "logo",
+        default_value = "auto",
         value_parser = parse_mode,
-        value_name = "logo|poster|pixel",
-        help = "Preset tuned for logo, poster, or pixel-art inputs."
+        value_name = "auto|logo|poster|pixel",
+        help = "Preset tuned for automatic detection, logo, poster, or pixel-art inputs."
     )]
     mode: VectorizeMode,
     /// Print debug info about the parsed options.
@@ -71,10 +71,11 @@ struct Cli {
 
 fn parse_mode(mode: &str) -> Result<VectorizeMode, String> {
     match mode.to_lowercase().as_str() {
+        "auto" => Ok(VectorizeMode::Auto),
         "logo" => Ok(VectorizeMode::Logo),
         "poster" => Ok(VectorizeMode::Poster),
         "pixel" | "pixel-art" | "pixelart" => Ok(VectorizeMode::PixelArt),
-        _ => Err("mode must be one of: logo, poster, pixel".into()),
+        _ => Err("mode must be one of: auto, logo, poster, pixel".into()),
     }
 }
 

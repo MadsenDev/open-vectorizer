@@ -29,7 +29,6 @@ fn samples() -> Vec<Sample> {
             image: transparent_ring_logo(),
             options: VectorizeOptions {
                 colors: 2,
-                mode: VectorizeMode::Logo,
                 ..VectorizeOptions::default()
             },
         },
@@ -46,11 +45,7 @@ fn samples() -> Vec<Sample> {
         Sample {
             name: "speckled-logo-cleanup",
             image: speckled_logo(),
-            options: VectorizeOptions {
-                colors: 3,
-                mode: VectorizeMode::Logo,
-                ..VectorizeOptions::default()
-            },
+            options: VectorizeOptions::default(),
         },
         Sample {
             name: "pixel-diagonal",

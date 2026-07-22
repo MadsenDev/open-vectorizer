@@ -120,6 +120,36 @@ fn logo_mode_can_emit_smoothed_paths() {
 }
 
 #[test]
+fn default_logo_mode_smooths_round_marks() {
+    let image = RgbaImage::from_fn(32, 32, |x, y| {
+        let dx = x as i32 - 16;
+        let dy = y as i32 - 16;
+        let dist_sq = dx * dx + dy * dy;
+        if (70..=190).contains(&dist_sq) {
+            Rgba([30, 30, 34, 255])
+        } else {
+            Rgba([0, 0, 0, 0])
+        }
+    });
+
+    let svg = vectorize_fixture(
+        image,
+        VectorizeOptions {
+            colors: 2,
+            mode: VectorizeMode::Logo,
+            ..VectorizeOptions::default()
+        },
+    );
+
+    assert!(svg.contains(" C "), "default logo mode should curve round contours");
+    assert_eq!(svg.matches("M ").count(), 2, "ring should keep outer and inner contours");
+    assert!(
+        svg.matches(" L ").count() < 4,
+        "round logo contours should not be dominated by stair-step line segments"
+    );
+}
+
+#[test]
 fn logo_mode_removes_isolated_specks_by_default() {
     let image = RgbaImage::from_fn(8, 8, |x, y| {
         let in_mark = (1..=4).contains(&x) && (1..=4).contains(&y);

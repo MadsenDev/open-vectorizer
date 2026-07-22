@@ -5,7 +5,7 @@ type WasmModule = typeof import('./pkg/png2svg_core.js');
 
 const MAX_COLORS = 32;
 
-type Mode = 'logo' | 'poster' | 'pixel';
+type Mode = 'auto' | 'logo' | 'poster' | 'pixel';
 
 interface UiOptions {
   colors: number;
@@ -15,6 +15,10 @@ interface UiOptions {
 }
 
 const presets: { label: string; options: UiOptions }[] = [
+  {
+    label: 'Automatic',
+    options: { colors: 8, detail: 0.6, smoothness: 0.5, mode: 'auto' },
+  },
   {
     label: 'Logo (Clean)',
     options: { colors: 6, detail: 0.65, smoothness: 0.7, mode: 'logo' },
@@ -35,7 +39,7 @@ function generatePlaceholderSvg(options: UiOptions, width = 420, height = 280) {
   const paletteCount = Math.max(2, Math.min(MAX_COLORS, Math.round(options.colors * options.detail)));
   const blockWidth = Math.max(12, Math.floor(width / paletteCount));
   const opacity = (0.35 + options.smoothness * 0.5).toFixed(2);
-  const hueOffset = options.mode === 'poster' ? 24 : options.mode === 'pixel' ? 180 : 0;
+  const hueOffset = options.mode === 'poster' ? 24 : options.mode === 'pixel' ? 180 : options.mode === 'auto' ? 120 : 0;
 
   const rows = Math.ceil(height / blockWidth);
   const cols = Math.ceil(width / blockWidth);
@@ -213,7 +217,7 @@ function App() {
           <div>
             <p className="text-xs uppercase tracking-[0.2em] text-emerald-300">Open Vectorizer</p>
             <h1 className="text-xl font-semibold text-white">PNG → SVG Playground</h1>
-            <p className="text-sm text-slate-400">Live controls to mirror the CLI and upcoming WASM build.</p>
+            <p className="text-sm text-slate-400">Upload a PNG and let the vectorizer choose the strategy.</p>
           </div>
           <div className="flex items-center gap-3 text-sm text-slate-300">
             <span className="inline-flex h-2 w-2 rounded-full bg-emerald-400" aria-hidden />
@@ -244,7 +248,7 @@ function App() {
           </div>
 
           <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-5 shadow-lg shadow-emerald-900/10">
-            <h2 className="mb-4 text-lg font-semibold text-white">Presets</h2>
+            <h2 className="mb-4 text-lg font-semibold text-white">Mode</h2>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
               {presets.map((preset) => (
                 <button
@@ -264,10 +268,10 @@ function App() {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-5 shadow-lg shadow-emerald-900/10 space-y-4">
-            <h2 className="text-lg font-semibold text-white">Controls</h2>
+          <details className="rounded-2xl border border-slate-800 bg-slate-900/40 p-5 shadow-lg shadow-emerald-900/10">
+            <summary className="cursor-pointer text-lg font-semibold text-white">Advanced Overrides</summary>
 
-            <div>
+            <div className="mt-4">
               <div className="flex items-center justify-between text-sm text-slate-300">
                 <label htmlFor="colors" className="font-medium text-white">
                   Colors
@@ -285,7 +289,7 @@ function App() {
               />
             </div>
 
-            <div>
+            <div className="mt-4">
               <div className="flex items-center justify-between text-sm text-slate-300">
                 <label htmlFor="detail" className="font-medium text-white">
                   Detail
@@ -304,7 +308,7 @@ function App() {
               />
             </div>
 
-            <div>
+            <div className="mt-4">
               <div className="flex items-center justify-between text-sm text-slate-300">
                 <label htmlFor="smoothness" className="font-medium text-white">
                   Smoothness
@@ -323,10 +327,10 @@ function App() {
               />
             </div>
 
-            <div className="space-y-2">
+            <div className="mt-4 space-y-2">
               <p className="text-sm font-medium text-white">Mode</p>
-              <div className="grid grid-cols-3 gap-2 text-sm">
-                {(['logo', 'poster', 'pixel'] as Mode[]).map((mode) => (
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                {(['auto', 'logo', 'poster', 'pixel'] as Mode[]).map((mode) => (
                   <button
                     key={mode}
                     type="button"
@@ -343,7 +347,7 @@ function App() {
                 ))}
               </div>
             </div>
-          </div>
+          </details>
         </section>
 
         <section className="w-full space-y-4 lg:w-2/3">

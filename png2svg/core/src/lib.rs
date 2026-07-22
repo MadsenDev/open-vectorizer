@@ -16,9 +16,10 @@ pub enum VectorizeError {
     Vectorize(String),
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum VectorizeMode {
+    Auto,
     Logo,
     Poster,
     #[serde(rename = "pixel", alias = "pixelart", alias = "pixel-art")]
@@ -27,7 +28,7 @@ pub enum VectorizeMode {
 
 impl Default for VectorizeMode {
     fn default() -> Self {
-        Self::Logo
+        Self::Auto
     }
 }
 
@@ -48,7 +49,7 @@ impl Default for VectorizeOptions {
             detail: 0.6,
             smoothness: 0.5,
             tolerance: 1.5,
-            mode: VectorizeMode::Logo,
+            mode: VectorizeMode::Auto,
         }
     }
 }
@@ -56,11 +57,99 @@ impl Default for VectorizeOptions {
 pub fn png_to_svg(png_bytes: &[u8], options: &VectorizeOptions) -> Result<String, VectorizeError> {
     let image = image::load_from_memory(png_bytes)?;
     let rgba = image.to_rgba8();
+    let effective_options = resolve_auto_options(&rgba, options);
 
-    let quantized = quantize_image(&rgba, options);
-    let svg = render_svg(&quantized, options);
+    let quantized = quantize_image(&rgba, &effective_options);
+    let svg = render_svg(&quantized, &effective_options);
 
     Ok(svg)
+}
+
+fn resolve_auto_options(image: &RgbaImage, options: &VectorizeOptions) -> VectorizeOptions {
+    if options.mode != VectorizeMode::Auto {
+        return options.clone();
+    }
+
+    let stats = analyze_image(image);
+    let mode = infer_mode(image, &stats);
+    match mode {
+        VectorizeMode::PixelArt => VectorizeOptions {
+            colors: stats.unique_opaque_colors.clamp(2, 16),
+            detail: 1.0,
+            smoothness: 0.0,
+            tolerance: 0.5,
+            mode,
+        },
+        VectorizeMode::Poster => VectorizeOptions {
+            colors: stats.unique_opaque_colors.clamp(8, 32),
+            detail: 0.85,
+            smoothness: 0.45,
+            tolerance: 2.25,
+            mode,
+        },
+        _ => VectorizeOptions {
+            colors: stats.unique_opaque_colors.clamp(2, 8),
+            detail: 0.65,
+            smoothness: 0.72,
+            tolerance: 2.0,
+            mode: VectorizeMode::Logo,
+        },
+    }
+}
+
+#[derive(Debug)]
+struct ImageStats {
+    opaque_pixels: usize,
+    partial_alpha_pixels: usize,
+    unique_opaque_colors: u8,
+    has_transparency: bool,
+}
+
+fn analyze_image(image: &RgbaImage) -> ImageStats {
+    let mut unique = HashSet::new();
+    let mut opaque_pixels = 0usize;
+    let mut partial_alpha_pixels = 0usize;
+    let mut has_transparency = false;
+
+    for pixel in image.pixels() {
+        if pixel[3] == 0 {
+            has_transparency = true;
+            continue;
+        }
+        if pixel[3] < 255 {
+            has_transparency = true;
+            partial_alpha_pixels += 1;
+        }
+        opaque_pixels += 1;
+        if unique.len() <= 64 {
+            unique.insert([pixel[0], pixel[1], pixel[2], pixel[3]]);
+        }
+    }
+
+    ImageStats {
+        opaque_pixels,
+        partial_alpha_pixels,
+        unique_opaque_colors: unique.len().clamp(0, u8::MAX as usize) as u8,
+        has_transparency,
+    }
+}
+
+fn infer_mode(image: &RgbaImage, stats: &ImageStats) -> VectorizeMode {
+    let max_dimension = image.width().max(image.height());
+    if max_dimension <= 16
+        && stats.unique_opaque_colors <= 16
+        && stats.partial_alpha_pixels == 0
+    {
+        return VectorizeMode::PixelArt;
+    }
+
+    if !stats.has_transparency
+        && (stats.unique_opaque_colors > 24 || stats.opaque_pixels > 80_000)
+    {
+        return VectorizeMode::Poster;
+    }
+
+    VectorizeMode::Logo
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -400,7 +489,7 @@ fn merge_similar_palette_colors(
 fn palette_merge_threshold(options: &VectorizeOptions) -> u32 {
     match options.mode {
         VectorizeMode::PixelArt => 0,
-        VectorizeMode::Logo => {
+        VectorizeMode::Auto | VectorizeMode::Logo => {
             if options.detail >= 0.85 {
                 64
             } else if options.detail >= 0.55 {
@@ -497,7 +586,7 @@ fn minimum_component_area(quantized: &QuantizedImage, options: &VectorizeOptions
 
     match options.mode {
         VectorizeMode::PixelArt => 1,
-        VectorizeMode::Logo => {
+        VectorizeMode::Auto | VectorizeMode::Logo => {
             if options.detail >= 0.85 {
                 1
             } else if options.detail >= 0.55 {
@@ -758,7 +847,10 @@ fn contours_to_path(contours: &[Vec<Point>], options: &VectorizeOptions) -> Stri
 
 fn simplify_contour(contour: &[Point], options: &VectorizeOptions) -> Vec<Point> {
     let tolerance = match options.mode {
-        VectorizeMode::Logo => (options.tolerance * 0.35).clamp(0.15, 1.5),
+        VectorizeMode::Auto | VectorizeMode::Logo => {
+            (options.tolerance * (1.15 - options.detail.clamp(0.1, 1.0) * 0.45))
+                .clamp(0.35, 2.5)
+        }
         VectorizeMode::Poster => (options.tolerance * 0.75).clamp(0.3, 3.0),
         VectorizeMode::PixelArt => 0.0,
     };
@@ -766,13 +858,53 @@ fn simplify_contour(contour: &[Point], options: &VectorizeOptions) -> Vec<Point>
     if tolerance <= 0.0 {
         contour.to_vec()
     } else {
-        let simplified = rdp_simplify(contour, tolerance);
+        let simplified = simplify_closed_contour(contour, tolerance);
         if simplified.len() >= 4 {
             simplified
         } else {
             contour.to_vec()
         }
     }
+}
+
+fn simplify_closed_contour(contour: &[Point], tolerance: f32) -> Vec<Point> {
+    if contour.len() <= 4 || contour.first() != contour.last() {
+        return rdp_simplify(contour, tolerance);
+    }
+
+    let open = &contour[..contour.len() - 1];
+    let split = farthest_point_pair(open);
+    let mut first_arc = rdp_simplify(&open[split.0..=split.1], tolerance);
+
+    let mut second_arc = Vec::with_capacity(open.len() - (split.1 - split.0) + 1);
+    second_arc.extend_from_slice(&open[split.1..]);
+    second_arc.extend_from_slice(&open[..=split.0]);
+    let mut second_arc = rdp_simplify(&second_arc, tolerance);
+
+    first_arc.pop();
+    second_arc.pop();
+    first_arc.extend(second_arc);
+    first_arc.push(first_arc[0]);
+    first_arc
+}
+
+fn farthest_point_pair(points: &[Point]) -> (usize, usize) {
+    let mut pair = (0, points.len() / 2);
+    let mut max_dist_sq = 0.0;
+
+    for (i, &a) in points.iter().enumerate() {
+        for (j, &b) in points.iter().enumerate().skip(i + 1) {
+            let dx = a.x - b.x;
+            let dy = a.y - b.y;
+            let dist_sq = dx * dx + dy * dy;
+            if dist_sq > max_dist_sq {
+                max_dist_sq = dist_sq;
+                pair = (i, j);
+            }
+        }
+    }
+
+    pair
 }
 
 // Convert one closed contour to an SVG subpath.
@@ -787,35 +919,11 @@ fn points_to_subpath(points: &[Point], options: &VectorizeOptions) -> String {
     // Start path
     write!(path, "M {:.2} {:.2}", points[0].x, points[0].y).ok();
     
-    // For logo mode with high smoothness, use curves; otherwise use lines
-    if matches!(options.mode, VectorizeMode::Logo) && smoothness > 0.5 && points.len() > 4 {
-        // Use smooth cubic Bézier curves for logos
-        for i in 1..points.len() {
-            let p0 = points[i - 1];
-            let p1 = points[i];
-            
-            if i == points.len() - 1 {
-                // Last point - line to close
-                write!(path, " L {:.2} {:.2}", p1.x, p1.y).ok();
-            } else {
-                let p2 = points[i + 1];
-                
-                // Calculate control points for smooth curve
-                let dx1 = p1.x - p0.x;
-                let dy1 = p1.y - p0.y;
-                let dx2 = p2.x - p1.x;
-                let dy2 = p2.y - p1.y;
-                
-                // Control points extend from p1 towards p0 and p2
-                let cp1x = p1.x - dx1 * smoothness * 0.3;
-                let cp1y = p1.y - dy1 * smoothness * 0.3;
-                let cp2x = p1.x + dx2 * smoothness * 0.3;
-                let cp2y = p1.y + dy2 * smoothness * 0.3;
-                
-                write!(path, " C {:.2} {:.2} {:.2} {:.2} {:.2} {:.2}", 
-                    cp1x, cp1y, cp2x, cp2y, p1.x, p1.y).ok();
-            }
-        }
+    if matches!(options.mode, VectorizeMode::Auto | VectorizeMode::Logo)
+        && smoothness >= 0.35
+        && points.len() > 4
+    {
+        write_closed_bezier_path(&mut path, points, smoothness);
     } else {
         // Simple polyline for accuracy
         for p in points.iter().skip(1) {
@@ -825,6 +933,40 @@ fn points_to_subpath(points: &[Point], options: &VectorizeOptions) -> String {
     
     path.push_str(" Z");
     path
+}
+
+fn write_closed_bezier_path(path: &mut String, points: &[Point], smoothness: f32) {
+    let ring = if points.first() == points.last() {
+        &points[..points.len() - 1]
+    } else {
+        points
+    };
+    if ring.len() < 4 {
+        for p in points.iter().skip(1) {
+            write!(path, " L {:.2} {:.2}", p.x, p.y).ok();
+        }
+        return;
+    }
+
+    let tension = smoothness * 0.95;
+    for i in 0..ring.len() {
+        let p0 = ring[(i + ring.len() - 1) % ring.len()];
+        let p1 = ring[i];
+        let p2 = ring[(i + 1) % ring.len()];
+        let p3 = ring[(i + 2) % ring.len()];
+
+        let cp1x = p1.x + (p2.x - p0.x) * tension / 6.0;
+        let cp1y = p1.y + (p2.y - p0.y) * tension / 6.0;
+        let cp2x = p2.x - (p3.x - p1.x) * tension / 6.0;
+        let cp2y = p2.y - (p3.y - p1.y) * tension / 6.0;
+
+        write!(
+            path,
+            " C {:.2} {:.2} {:.2} {:.2} {:.2} {:.2}",
+            cp1x, cp1y, cp2x, cp2y, p2.x, p2.y
+        )
+        .ok();
+    }
 }
 
 fn opacity_from_options(alpha: u8, _options: &VectorizeOptions) -> f32 {
@@ -907,6 +1049,47 @@ mod tests {
 
         let serialized = serde_json::to_string(&options).expect("options should serialize");
         assert!(serialized.contains("\"mode\":\"pixel\""));
+    }
+
+    #[test]
+    fn default_options_start_in_auto_mode() {
+        assert!(matches!(VectorizeOptions::default().mode, VectorizeMode::Auto));
+    }
+
+    #[test]
+    fn auto_mode_infers_logo_for_transparent_mark() {
+        let image = RgbaImage::from_fn(32, 32, |x, y| {
+            let dx = x as i32 - 16;
+            let dy = y as i32 - 16;
+            let dist_sq = dx * dx + dy * dy;
+            if (70..=190).contains(&dist_sq) {
+                Rgba([30, 30, 34, 255])
+            } else {
+                Rgba([0, 0, 0, 0])
+            }
+        });
+
+        let options = resolve_auto_options(&image, &VectorizeOptions::default());
+
+        assert!(matches!(options.mode, VectorizeMode::Logo));
+        assert!(options.smoothness > 0.5);
+        assert!(options.tolerance > VectorizeOptions::default().tolerance);
+    }
+
+    #[test]
+    fn auto_mode_keeps_tiny_low_color_art_crisp() {
+        let image = RgbaImage::from_fn(12, 12, |x, y| {
+            if x == y || x + 1 == y {
+                Rgba([20, 20, 20, 255])
+            } else {
+                Rgba([0, 0, 0, 0])
+            }
+        });
+
+        let options = resolve_auto_options(&image, &VectorizeOptions::default());
+
+        assert!(matches!(options.mode, VectorizeMode::PixelArt));
+        assert_eq!(options.smoothness, 0.0);
     }
 
     #[test]

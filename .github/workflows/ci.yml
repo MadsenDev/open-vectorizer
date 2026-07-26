@@ -17,8 +17,14 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Check lints
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
       - name: Run workspace tests
         run: cargo test --workspace
+
+      - name: Report benchmark against known geometry
+        run: cargo run --release -p png2svg-core --example benchmark
 
       - name: Generate SVG samples
         run: cargo run -p png2svg-core --example generate_samples

@@ -1,6 +1,6 @@
 name: Algorithm proposal
 description: A different or better way to do one of the pipeline stages — fitting, corners, primitives, decomposition.
-labels: ["enhancement", "algorithm"]
+labels: ["enhancement"]
 body:
   - type: markdown
     attributes:

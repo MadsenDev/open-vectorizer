@@ -21,8 +21,13 @@ Tracking what is done and what is left.
 - [ ] Gradient detection, emitting `<linearGradient>` / `<radialGradient>`.
 - [ ] Stroke recovery: detect a filled outline that was originally a stroked path.
 - [ ] Rounded-rectangle primitive (`<rect rx>`), currently fitted as lines plus curves.
-- [ ] Parallelism across colours; the pipeline is embarrassingly parallel per palette entry.
 - [ ] Better pixel-art detection than the current size-and-alpha heuristic (look for an integer upscale grid).
+- [ ] Faster: we are 2-4x slower than VTracer. The pipeline is embarrassingly
+      parallel per palette entry, and the coverage decomposition is the hot loop.
+- [ ] Relative rather than absolute flatness in `interior_mask`. A low-contrast
+      boundary steps by less than the fixed threshold, so its blend colours reach
+      the palette; population-weighted merging now contains the damage, but the
+      classifier itself is still the weak link.
 
 ## CLI
 
@@ -45,6 +50,8 @@ Tracking what is done and what is left.
 - [x] Benchmark example reporting nodes, accuracy, primitives and timing.
 - [x] Behavioural fixtures asserted through the `Document` API rather than SVG text.
 - [x] Determinism tests.
+- [x] Shootout harness comparing against potrace and VTracer on identical inputs,
+      scored independently of our own internals (`benchmarks/shootout/`).
 - [ ] A corpus of real logos with committed expected outputs, to catch regressions on
       the messy cases synthetic shapes do not cover (glyphs, thin strokes, drop shadows,
       recompressed screenshots).

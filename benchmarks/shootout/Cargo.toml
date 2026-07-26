@@ -1,0 +1,26 @@
+# Deliberately its own workspace: this crate is a comparison harness that shells
+# out to external binaries, so it is not built or tested as part of the main
+# workspace.
+[workspace]
+
+[package]
+name = "shootout"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+image = { version = "0.25", default-features = false, features = ["png"] }
+png2svg-core = { path = "../../png2svg/core" }
+
+[[bin]]
+name = "gen"
+path = "src/gen.rs"
+
+[[bin]]
+name = "score"
+path = "src/score.rs"
+
+[[bin]]
+name = "ours_white"
+path = "src/ours_white.rs"

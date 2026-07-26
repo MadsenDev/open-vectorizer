@@ -99,6 +99,13 @@ Read these before quoting any number.
 - **Defaults only.** No tool was tuned. VTracer has `--mode`,
   `--corner_threshold`, `--filter_speckle` and presets; potrace has `--alphamax`
   and `--opttolerance`. Tuned settings would move the numbers.
-- **Not every engine is here.** Inkscape's trace is potrace, so it is covered.
-  Adobe Illustrator's Image Trace and Vector Magic are commercial and could not
-  be run. AutoTrace is effectively unmaintained.
+- **Not every engine is here.** The closest comparison we cannot make is
+  Vectorizer.AI, which is the only other engine we know of that claims this
+  approach: its feature list describes placing boundaries from anti-aliasing
+  pixel values, recovering features narrower than a pixel, and fitting
+  parameterized circles, ellipses, rounded rectangles and stars — further than
+  we go. It is commercial, closed and has no published method, so there is
+  nothing to verify and no way to put it in this table; take its claims and
+  ours on the same terms, except that ours can be rerun. Adobe Illustrator's
+  Image Trace and Vector Magic are likewise commercial. Inkscape's trace is
+  potrace, so it is covered. AutoTrace is effectively unmaintained.

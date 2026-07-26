@@ -107,19 +107,17 @@ fn compose(cases: &Path, sizes: &[(String, f64, f64)]) -> String {
 
     for (index, (heading, sub, _)) in COLUMNS.iter().enumerate() {
         let x = MARGIN + index as f64 * (PANEL + GAP) + PANEL / 2.0;
-        let _ = write!(
+        let _ = writeln!(
             svg,
             r#"<text class="h" x="{x:.1}" y="{y:.1}" text-anchor="middle">{heading}</text>
-<text class="sub" x="{x:.1}" y="{sy:.1}" text-anchor="middle">{sub}</text>
-"#,
+<text class="sub" x="{x:.1}" y="{sy:.1}" text-anchor="middle">{sub}</text>"#,
             y = MARGIN + 14.0,
             sy = MARGIN + 29.0,
         );
     }
-    let _ = write!(
+    let _ = writeln!(
         svg,
-        r#"<line x1="{MARGIN}" y1="{y:.1}" x2="{x2:.1}" y2="{y:.1}" stroke="{RULE}"/>
-"#,
+        r#"<line x1="{MARGIN}" y1="{y:.1}" x2="{x2:.1}" y2="{y:.1}" stroke="{RULE}"/>"#,
         y = MARGIN + HEADER - 14.0,
         x2 = width - MARGIN,
     );
@@ -134,10 +132,9 @@ fn compose(cases: &Path, sizes: &[(String, f64, f64)]) -> String {
         for (column, (_, _, suffix)) in COLUMNS.iter().enumerate() {
             let left = MARGIN + column as f64 * (PANEL + GAP);
             let card = if column == 1 { OURS_CARD } else { CARD };
-            let _ = write!(
+            let _ = writeln!(
                 svg,
-                r#"<rect x="{left:.1}" y="{top:.1}" width="{PANEL}" height="{PANEL}" rx="4" fill="{card}" stroke="{RULE}"/>
-"#
+                r#"<rect x="{left:.1}" y="{top:.1}" width="{PANEL}" height="{PANEL}" rx="4" fill="{card}" stroke="{RULE}"/>"#
             );
 
             let caption_y = top + PANEL + 15.0;
@@ -145,21 +142,19 @@ fn compose(cases: &Path, sizes: &[(String, f64, f64)]) -> String {
 
             if suffix.is_empty() {
                 let png = cases.join(format!("{case}.white.png"));
-                let _ = write!(
+                let _ = writeln!(
                     svg,
-                    r#"<image x="{x:.2}" y="{y:.2}" width="{w:.2}" height="{h:.2}" xlink:href="data:image/png;base64,{data}"/>
-"#,
+                    r#"<image x="{x:.2}" y="{y:.2}" width="{w:.2}" height="{h:.2}" xlink:href="data:image/png;base64,{data}"/>"#,
                     x = left + (PANEL - fitted(*case_width, *case_width, *case_height)) / 2.0,
                     y = top + (PANEL - fitted(*case_height, *case_width, *case_height)) / 2.0,
                     w = fitted(*case_width, *case_width, *case_height),
                     h = fitted(*case_height, *case_width, *case_height),
                     data = base64(&fs::read(&png).unwrap()),
                 );
-                let _ = write!(
+                let _ = writeln!(
                     svg,
                     r#"<text class="cap" x="{centre:.1}" y="{caption_y:.1}" text-anchor="middle">{case}</text>
-<text class="capsub" x="{centre:.1}" y="{y2:.1}" text-anchor="middle">{w:.0}×{h:.0} · {note}</text>
-"#,
+<text class="capsub" x="{centre:.1}" y="{y2:.1}" text-anchor="middle">{w:.0}×{h:.0} · {note}</text>"#,
                     y2 = caption_y + 14.0,
                     w = case_width,
                     h = case_height,
@@ -175,10 +170,9 @@ fn compose(cases: &Path, sizes: &[(String, f64, f64)]) -> String {
             let counted: usize = marks.iter().map(|e| e.points.len()).sum();
 
             svg.push_str(&panel(&marks, left, top, *case_width, *case_height));
-            let _ = write!(
+            let _ = writeln!(
                 svg,
-                r#"<text class="cap" x="{centre:.1}" y="{caption_y:.1}" text-anchor="middle">{counted} node{plural}</text>
-"#,
+                r#"<text class="cap" x="{centre:.1}" y="{caption_y:.1}" text-anchor="middle">{counted} node{plural}</text>"#,
                 plural = if counted == 1 { "" } else { "s" },
             );
         }
@@ -243,10 +237,9 @@ fn near_white(fill: &str) -> bool {
 /// One engine panel: the shape, its outline, and a marker on every node.
 fn panel(marks: &[&Element], left: f64, top: f64, width: f64, height: f64) -> String {
     let mut svg = String::new();
-    let _ = write!(
+    let _ = writeln!(
         svg,
-        r#"<svg x="{left:.1}" y="{top:.1}" width="{PANEL}" height="{PANEL}" viewBox="0 0 {width} {height}">
-"#
+        r#"<svg x="{left:.1}" y="{top:.1}" width="{PANEL}" height="{PANEL}" viewBox="0 0 {width} {height}">"#
     );
 
     // The shape, then its outline, then the markers, so nothing is buried.

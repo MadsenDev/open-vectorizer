@@ -108,6 +108,8 @@ The cases are our own synthetic geometry, and they favour what this engine was b
 
 So the honest claim is narrow: **for flat vector artwork with geometric structure, on inputs of this kind, this engine is ahead of both.** A corpus of real logos is the next thing needed to say anything broader, and it is tracked in `TODO.md`.
 
+These are also not the only engines that exist, and the most interesting one is missing. Vectorizer.AI is the only other engine we know of that claims this approach — its feature list describes placing boundaries from anti-aliasing pixel values and fitting parameterized circles, ellipses, rounded rectangles and stars, which is further than we go. It is commercial, closed, and has no published method, so it cannot be benchmarked or checked. The idea underneath is older than either of us: locating an edge from the area it covers in a pixel is the subject of the partial-area-effect literature in computer vision, and applying it to clip-art vectorization was published in 2023 by Yang et al. as `Subpixel Deblurring of Anti-Aliased Raster Clip-Art`, using a learned model to do it. What appears to be genuinely unoccupied is the open, deterministic, measurable version, which is this one.
+
 ## Approach
 
 The engine treats an anti-aliased pixel as a **measurement of coverage**, not as a colour that needs a palette slot.

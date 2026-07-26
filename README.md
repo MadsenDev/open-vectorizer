@@ -2,7 +2,7 @@
 
 A fully open-source raster → SVG converter for logos, icons and flat artwork. Rust core, CLI, and a WebAssembly build for the browser. Runs entirely locally: no model, no inference, no network.
 
-**Try it in the browser: [vardirhq.github.io/open-vectorizer](https://vardirhq.github.io/open-vectorizer/)** — the engine is compiled to WebAssembly and runs on the page, so the image is never uploaded anywhere.
+**Try it in the browser: [vector.vardir.no](https://vector.vardir.no)** — the engine is compiled to WebAssembly and runs on the page, so the image is never uploaded anywhere. Also served at [vardirhq.github.io/open-vectorizer](https://vardirhq.github.io/open-vectorizer/).
 
 ## Status
 

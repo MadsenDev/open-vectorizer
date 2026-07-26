@@ -62,10 +62,8 @@ jobs:
 
       - name: Build
         working-directory: web-ui
-        # configure-pages reports the real base path, so a custom domain or a
-        # rename does not need this file edited.
-        env:
-          BASE_PATH: ${{ steps.pages.outputs.base_path }}
+        # No BASE_PATH: the build uses relative asset paths, so the same artifact
+        # works under the project-site prefix and at the root of a custom domain.
         run: npm run build
 
       - name: Upload artifact

@@ -46,7 +46,8 @@ Tracking what is done and what is left.
 - [x] Preset buttons for Logo/Poster/Pixel Art, and every option documented in the UI.
 - [x] Node count and accuracy shown, so the quality/complexity trade-off is visible.
 - [x] Input above 2048px downscaled, with a notice, to stay inside wasm memory.
-- [x] GitHub Pages deployment on push to `main`.
+- [x] GitHub Pages deployment on push to `main`, at vector.vardir.no and the
+      project-site URL. Relative asset paths, so one artifact serves from both.
 - [x] Browser smoke test (`web-ui/scripts/smoke.mjs`).
 - [x] Options as a bottom sheet below `lg`, so settings are reachable on a phone
       without scrolling, with the result kept visible while a slider moves.

@@ -90,18 +90,48 @@ impl Default for VectorizeOptions {
     }
 }
 
-/// Vectorize an encoded image (PNG, JPEG, WebP, GIF, BMP, ...) to an SVG string.
+/// Vectorize an encoded image (PNG, JPEG, GIF, BMP, ...) to an SVG string.
+///
+/// Requires the `decode` feature, which is on by default.
+#[cfg(feature = "decode")]
 pub fn png_to_svg(bytes: &[u8], options: &VectorizeOptions) -> Result<String, VectorizeError> {
     Ok(vectorize_bytes(bytes, options)?.to_svg())
 }
 
 /// Vectorize encoded image bytes into a [`Document`], for callers that want the
 /// geometry or the statistics rather than serialized SVG.
+///
+/// Requires the `decode` feature, which is on by default.
+#[cfg(feature = "decode")]
 pub fn vectorize_bytes(
     bytes: &[u8],
     options: &VectorizeOptions,
 ) -> Result<Document, VectorizeError> {
     let image = image::load_from_memory(bytes)?.to_rgba8();
+    Ok(vectorize_image(&image, options))
+}
+
+/// Vectorize raw, non-premultiplied RGBA8 pixels.
+///
+/// The entry point for callers that already have decoded pixels — notably the
+/// browser, which decodes far more formats than any bundled codec set and does it
+/// without adding to the wasm payload.
+pub fn vectorize_rgba(
+    width: u32,
+    height: u32,
+    rgba: &[u8],
+    options: &VectorizeOptions,
+) -> Result<Document, VectorizeError> {
+    let expected = width as usize * height as usize * 4;
+    if rgba.len() != expected {
+        return Err(VectorizeError::Vectorize(format!(
+            "expected {expected} bytes for {width}x{height} RGBA, got {}",
+            rgba.len()
+        )));
+    }
+    let image = RgbaImage::from_raw(width, height, rgba.to_vec()).ok_or_else(|| {
+        VectorizeError::Vectorize("could not build an image from those pixels".to_string())
+    })?;
     Ok(vectorize_image(&image, options))
 }
 
@@ -111,17 +141,74 @@ pub fn vectorize_image(image: &RgbaImage, options: &VectorizeOptions) -> Documen
     vectorize::vectorize(image, &resolved)
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", feature = "decode"))]
 #[wasm_bindgen]
 pub fn png_to_svg_wasm(png_bytes: &[u8], options_json: &str) -> Result<String, JsValue> {
-    let options = if options_json.trim().is_empty() {
-        VectorizeOptions::default()
+    let options = parse_options(options_json)?;
+    png_to_svg(png_bytes, &options).map_err(|err| JsValue::from_str(&err.to_string()))
+}
+
+/// Vectorize decoded RGBA pixels and return the SVG.
+///
+/// Preferred over [`png_to_svg_wasm`] in the browser: the page decodes the file
+/// itself, so every format it supports works and no codec is compiled into the
+/// wasm.
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub fn vectorize_rgba_wasm(
+    width: u32,
+    height: u32,
+    rgba: &[u8],
+    options_json: &str,
+) -> Result<String, JsValue> {
+    let options = parse_options(options_json)?;
+    vectorize_rgba(width, height, rgba, &options)
+        .map(|document| document.to_svg())
+        .map_err(|err| JsValue::from_str(&err.to_string()))
+}
+
+/// Vectorize decoded RGBA pixels and return the SVG plus a summary, as JSON.
+///
+/// Lets the page show node counts and accuracy next to the result, which is the
+/// pair of numbers that actually describes the quality of a trace.
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub fn vectorize_rgba_report_wasm(
+    width: u32,
+    height: u32,
+    rgba: &[u8],
+    options_json: &str,
+) -> Result<String, JsValue> {
+    let options = parse_options(options_json)?;
+    let expected = width as usize * height as usize * 4;
+    if rgba.len() != expected {
+        return Err(JsValue::from_str("pixel buffer has the wrong length"));
+    }
+    let image = RgbaImage::from_raw(width, height, rgba.to_vec())
+        .ok_or_else(|| JsValue::from_str("could not build an image from those pixels"))?;
+
+    let document = vectorize_image(&image, &options);
+    let stats = document.stats();
+    let report = serde_json::json!({
+        "svg": document.to_svg(),
+        "shapes": stats.shapes,
+        "nodes": stats.nodes,
+        "circles": stats.circles,
+        "ellipses": stats.ellipses,
+        "rects": stats.rects,
+        "accuracy": accuracy(&document, &image),
+    });
+    serde_json::to_string(&report).map_err(|err| JsValue::from_str(&err.to_string()))
+}
+
+#[cfg(target_arch = "wasm32")]
+fn parse_options(options_json: &str) -> Result<VectorizeOptions, JsValue> {
+    if options_json.trim().is_empty() {
+        Ok(VectorizeOptions::default())
     } else {
         serde_json::from_str::<VectorizeOptions>(options_json)
-            .map_err(|err| JsValue::from_str(&format!("invalid options json: {err}")))?
-    };
-
-    png_to_svg(png_bytes, &options).map_err(|err| JsValue::from_str(&err.to_string()))
+            .map_err(|err| JsValue::from_str(&format!("invalid options json: {err}")))
+    }
 }
 
 #[cfg(target_arch = "wasm32")]

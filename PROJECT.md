@@ -25,13 +25,19 @@ WebAssembly (browser).
 
 
 
-Non-goals (for now):
+Non-goals:
 
-Photorealistic image vectorization.
+Photorealistic image vectorization. Photographs convert without falling over but
+produce thousands of shapes, which is the wrong representation for them.
 
 Full-blown vector editor.
 
-AI-heavy stack in v1 (optional later).
+A learned model. This was considered and is not needed: the failures that
+motivated it were missing deterministic geometry, not a missing model. Sub-pixel
+coverage reading, corner reconstruction and primitive fitting recover the
+geometry directly, and are exactly measurable against known ground truth. Any
+future model would have to beat those numbers on the same benchmark to justify
+the dependency, the model weights and the loss of determinism.
 
 
 
@@ -88,35 +94,43 @@ png2svg/
 
 Flow
 
-Input: PNG (logo/icon/flat art)
+Input: raster image (logo/icon/flat art)
 Process (core engine):
 
-1. Pre-process image (normalize, optional denoise/downscale).
+1. Build a palette from interior pixels only.
 
 
-2. Color quantization & region labeling.
+2. Decompose into per-colour sub-pixel coverage fields.
 
 
-3. Contour extraction for each region.
+3. Extract contours at the 0.5 coverage isoline.
 
 
-4. Path simplification (RDP, Bézier curve fitting).
+4. Detect corners and straight runs; fit lines, curves and primitives.
 
 
-5. Anti-alias aware edge adjustment.
+5. Rasterize each candidate and score it against the source coverage.
 
 
-6. SVG generation (paths, groups, ordering).
+6. Keep the simplest candidate that measures well enough; emit SVG.
 
 
+
+Note that anti-aliasing is not a separate correction step. It is the input to
+step 2, and the reason sub-pixel accuracy is available at all. The original plan
+treated it as a post-hoc "edge adjustment" applied to integer-grid contours; that
+ordering cannot recover the information, because it has already been discarded by
+the time the contour exists.
 
 Output: SVG string/file with:
 
-Clean <path> elements.
+Real <circle>, <ellipse> and <rect> elements where the geometry warrants them.
 
-Minimal but smooth node count.
+Clean <path> elements elsewhere, with holes cut by even-odd fill.
 
-Reasonable grouping by color / region.
+Minimal node count for a stated accuracy, chosen by measurement.
+
+Grouping by colour, painted largest-area first.
 
 
 Components
@@ -167,354 +181,157 @@ Sliders for colors, detail, smoothness
 
 ---
 
-4. Core Algorithm Pipeline (Implementation Guidance)
+4. Core Algorithm Pipeline (as implemented)
 
-Codex/Cursor: implement this pipeline step-by-step in core/.
+The engine treats an anti-aliased pixel as a measurement of coverage rather than
+as a colour needing a palette slot. Every stage below lives in its own module
+under png2svg/core/src/.
 
-4.1 Pre-processing
+4.1 Palette (quantize.rs)
 
-Load PNG into RGBA buffer using image crate.
-
-Convert to a consistent color representation (e.g. linear RGB).
-
-Optional:
-
-Downscale if resolution is extremely large (configurable).
-
-Apply mild denoising to reduce JPEG artifacts (if needed, later).
-
-
-
-4.2 Color Quantization & Region Map
-
-Use color quantization to reduce image to N colors.
-
-Start with median cut or k-means clustering.
-
-N is user-configurable (max_colors).
-
-
-Assign each pixel to nearest palette color.
-
-Build a label map for the image: each pixel belongs to a color index (0..N-1).
-
-
-4.3 Region Extraction (Connected Components)
-
-For each palette color, find connected components in the label map:
-
-Use 4- or 8-connectivity (8 is preferable for smoother boundaries).
-
-Each connected component = one region to vectorize.
-
-
-Store each region as a binary mask or list of pixel coordinates.
-
-
-4.4 Contour Tracing
-
-For each region, find its outer contour(s) using something like:
-
-Marching squares OR border-following (e.g. Moore-neighbor tracing).
-
-
-Represent contour as an ordered list of 2D points (pixel coordinates).
-
-Initially, this will be a high-resolution polygon approximating the pixel boundary.
-
-
-4.5 Path Simplification
-
-Use Ramer–Douglas–Peucker (RDP) or Visvalingam–Whyatt algorithm to reduce point count:
-
-Input: list of points from contour.
-
-Output: simplified list with fewer points while preserving shape.
-
-Tolerance controlled by simplification_tolerance.
-
-
-After simplification, fit cubic Bézier curves to sequences of points:
-
-Use a simple least-squares Bézier curve fitting algorithm.
-
-Keep corner points as actual corners (no over-smoothing).
-
-Use smoothness to control curve vs straight segments.
-
-
-
-4.6 Anti-Alias Aware Edge Adjustment (Basic v1)
-
-In v1, implement a lightweight version:
-
-For pixels near region boundaries:
-
-Inspect alpha and neighboring colors to estimate where the “true” edge lies.
-
-
-Adjust contour points slightly (sub-pixel shift) based on gradients, so edges look smoother and align with visual center of anti-aliasing.
-
-
-This can be simple at first:
-
-Compute a centroid/offset per boundary segment based on neighbor alpha values and apply a small correction.
-
-
-4.7 SVG Generation
-
-For each region, generate an SVG <path>:
-
-Convert contour (with Bézier curves) into d="M ... C ... Z" commands.
-
-Apply fill color from region palette.
-
-
-Group paths logically:
-
-By color: <g id="color-#rrggbb">...</g>
-
-Possibly by region index for easier debugging.
-
-
-Export final SVG string with:
-
-viewBox based on original image dimensions.
-
-Optionally, width/height attributes.
-
-
-
+Classify pixels as interior (they and their four neighbours carry essentially the
+same premultiplied colour) or not. Build the palette from interior pixels only:
+anti-aliased edge pixels form a continuum between the real colours, and feeding
+them to a quantizer produces phantom halo colours along every boundary. Fall back
+to progressively looser samples when an image has too little flat area (thin
+strokes, gradients).
+
+Median cut on a bounded histogram, then agglomerative merging of near-identical
+colours. Merging must be agglomerative rather than a single sequential pass: with
+colours 197, 203, 199, 201 a sequential pass compares 203 against 197, finds them
+too far apart, and strands them in separate groups even though the intermediate
+values would have chained them together. A noisy source then fragments one flat
+fill into hundreds of shapes.
+
+4.2 Coverage decomposition (field.rs)
+
+Compositing is linear in premultiplied-alpha space, so a pixel on a boundary
+between palette colours A and B satisfies
+
+    pixel = t * A + (1 - t) * B
+
+and t is exactly the fraction of the pixel that A covers. Solve for the pair of
+palette entries whose connecting segment passes closest to the pixel's colour,
+and split the pixel's coverage accordingly. The result is one coverage field per
+colour, summing to 1.0 at every pixel.
+
+The pair search must try several starting points rather than committing to the
+single nearest entry. A half-covered red pixel over transparency sits at the
+midpoint of [transparent, red], and that midpoint can be numerically closer to a
+third colour than to either end - which would attribute the whole anti-aliased rim
+of a red mark to that third colour.
+
+4.3 Contour extraction (trace.rs)
+
+Marching squares over each coverage field at level 0.5, with vertices placed by
+linear interpolation, giving sub-pixel boundary positions. Saddle cells are
+disambiguated by the cell centre. The field is padded with zeros one sample
+outside the image so a region running off the canvas closes exactly on the border.
+
+Pixel art takes a different path: trace the exact edges between filled and empty
+cells, with no interpolation and no chamfering.
+
+Contours are then classified into outlines and holes by nesting depth, which
+handles arbitrary nesting - a dot inside the hole of a ring is a filled outline
+again.
+
+4.4 Corners (corner.rs)
+
+A single turn-angle threshold cannot tell a corner from a tight arc, because a
+small circle turns as fast as a corner does. The discriminator is scale
+behaviour: measure the turn over a short window and again over a window twice as
+long. A corner concentrates all its turning at one point, so both report the same
+angle; an arc spreads it, so doubling the window doubles the angle.
+
+    corner:  angle(d) / angle(2d) ~ 1.0
+    arc:     angle(d) / angle(2d) ~ 0.5
+
+That ratio is scale invariant, so one threshold works for a 6px icon and a 2000px
+mark alike.
+
+4.5 Fitting (fit.rs)
+
+Break the ring at corners and at the ends of long straight runs, then fit each
+span. Straight runs are found by incremental second moments, tested against the
+tracer's own noise floor rather than the caller's tolerance - whether a side is
+straight is a property of the artwork, not of the error budget.
+
+Curved spans use Schneider's least-squares cubic fit with Newton-Raphson
+reparameterization. Tangents are taken one-sided at corners so corners stay sharp,
+and from the neighbouring line at a smooth junction so nothing kinks.
+
+The step that matters most: marching squares chamfers a sharp corner into two
+45-degree steps straddling the true vertex, which no curve fitting will sharpen
+back up. So straight runs are fitted from their interiors, with the chamfered ends
+trimmed away, and the corner is recovered exactly by intersecting the two fitted
+lines.
+
+A final pass collapses cubics that never leave their own chord into lines, and
+merges collinear neighbours.
+
+4.6 Primitives (primitive.rs)
+
+Circle by Kasa's algebraic fit polished with Landau's fixed-point iteration.
+Ellipse by area-moment matching, which avoids the generalized eigenproblem a
+direct conic fit would need. Axis-aligned rectangles from an already-fitted
+four-line contour. Each fit reports its own worst-case error so the caller decides
+whether to accept it.
+
+4.7 Measure and choose (raster.rs, vectorize.rs)
+
+For each region, generate candidates - primitives plus curve fits at a ladder of
+tolerances - render each back to coverage with an anti-aliased scanline
+rasterizer, and score it against the coverage measured from the image. Keep the
+simplest candidate that measures well enough.
+
+Three details make this work rather than merely sound good:
+
+- The comparison is restricted to the pixels a shape is answerable for. A colour's
+  coverage field describes every region of that colour, so an unrestricted
+  comparison lets a neighbouring region, or a speck deliberately dropped as noise,
+  pin every candidate's error at the maximum and destroy discrimination.
+- The acceptance floor comes from the path candidates only. Primitives are
+  hypotheses under test; if the floor were the best score overall, a shape where
+  every candidate scores badly would let the simplest bad candidate set its own
+  pass mark.
+- The error budget scales with the shape's own size. Coverage error at a boundary
+  is roughly the geometric displacement in pixels; half a pixel is invisible on a
+  200px mark and is the entire shape on a 4px one.
+
+4.8 Output (svg.rs)
+
+Primitives are emitted as real <circle>, <ellipse> and <rect> elements rather than
+flattened into path data, because that is what makes the output editable. Shapes
+with holes become even-odd paths. Paths omit repeated command letters. Colours
+covering more of the canvas paint first, so detail lands on top.
 
 ---
 
-5. Roadmap & Milestones
-
-Codex/Cursor: follow this order when implementing.
-
-Milestone 1 – Repo & Skeleton
-
-[ ] Create monorepo structure:
-
-png2svg/
-  core/
-  cli/
-  web-ui/
-  examples/
-
-[ ] Initialize Rust library crate in core/.
-
-[ ] Initialize Rust binary crate in cli/ depending on core/.
-
-[ ] Initialize Vite + React + TS app in web-ui/.
-
-[ ] Add basic README.md describing project & goals.
-
-
-
----
-
-Milestone 2 – Basic Core: PNG → Region Map
-
-In core/:
-
-[ ] Add image crate & implement load_png_from_bytes helper.
-
-[ ] Implement VectorizeOptions and VectorizeMode enums.
-
-[ ] Implement basic color quantization:
-
-[ ] Collect pixels.
-
-[ ] Apply median cut or k-means to get palette.
-
-[ ] Map pixels to nearest palette color index.
-
-
-[ ] Implement a debug function:
-
-[ ] Export quantized image as PNG (for testing).
-
-
-[ ] Expose a function:
-
-pub fn quantize_image(png_bytes: &[u8], options: &VectorizeOptions) -> Result<QuantizedImage, VectorizeError>;
-
-
-
----
-
-Milestone 3 – Region Extraction & Simple SVG
-
-In core/:
-
-[ ] Implement connected-component labeling on the label map.
-
-[ ] For each component, find boundary/contour (polygonal).
-
-[ ] Implement polygonal SVG export (no simplification yet):
-
-[ ] Convert raw contours directly to L commands.
-
-[ ] Basic SVG generator producing one <path> per region.
-
-
-[ ] Wire it together in png_to_svg (no simplification, no curves, just polygons).
-
-
-This will produce very detailed SVGs but is a good correctness check.
-
-
----
-
-Milestone 4 – Path Simplification & Curves
-
-In core/:
-
-[ ] Implement RDP simplification on the contour polygons.
-
-[ ] Implement basic cubic Bézier fitting on simplified segments.
-
-[ ] Add simplification_tolerance and smoothness parameters to VectorizeOptions.
-
-[ ] Use Bézier curves (C/Q) in SVG path output.
-
-[ ] Ensure no extreme oversmoothing around sharp corners.
-
-
-This milestone should already outperform many low-quality converters.
-
-
----
-
-Milestone 5 – CLI Tool
-
-In cli/:
-
-[ ] Add clap for argument parsing.
-
-[ ] Implement:
-
-png2svg input.png -o output.svg \
-  --colors 8 \
-  --mode logo \
-  --tolerance 2.0 \
-  --smoothness 0.8
-
-[ ] Options:
-
---colors / -c: max colors
-
---mode / -m: logo, poster, pixel-art (pixel-art can behave like logo but without smoothing initially)
-
---tolerance / -t: simplification tolerance
-
---smoothness / -s: curve smoothness
-
-
-[ ] Proper error messages & exit codes.
-
-
-
----
-
-Milestone 6 – WebAssembly & Web UI
-
-6.1 WASM Build
-
-In core/:
-
-[ ] Add wasm-bindgen and create wasm feature flag.
-
-[ ] Create a WASM entry function:
-
-#[wasm_bindgen]
-pub fn png_to_svg_wasm(png_bytes: &[u8], options_json: &str) -> String;
-
-options_json will contain the serialized VectorizeOptions.
-
-
-[ ] Create a build process using wasm-pack or Vite plugin to produce a .wasm + JS glue module for web-ui.
-
-
-6.2 Web UI
-
-In web-ui/:
-
-[ ] Setup Vite + React + TS + Tailwind 3.4.x.
-
-[ ] Add UI components:
-
-[ ] File upload (PNG).
-
-[ ] Sliders:
-
-colors (e.g., 2–32)
-
-detail level / tolerance
-
-smoothness
-
-
-[ ] Mode selector: Logo, Poster, Pixel Art (even if they internally map to same options initially).
-
-[ ] Preview area:
-
-left: original PNG
-
-right: rendered SVG (use <svg> rendered via dangerouslySetInnerHTML or react-svg).
-
-
-[ ] Download SVG button.
-
-
-[ ] Wire up WASM:
-
-[ ] On file load + parameter change, call png_to_svg_wasm.
-
-[ ] Show loading state while vectorization runs.
-
-
-
-
----
-
-Milestone 7 – Quality Improvements & Polish
-
-[ ] Improve anti-alias handling:
-
-[ ] Use alpha + neighboring colors to adjust boundary locations.
-
-
-[ ] Add grouping in SVG:
-
-[ ] Group paths by color.
-
-[ ] Add IDs to groups for debugging.
-
-
-[ ] Add preset buttons:
-
-[ ] “Logo (Clean)”
-
-[ ] “Poster (More Detail)”
-
-[ ] “Pixel Art (Crisp)”
-
-
-[ ] Add examples/ with sample PNGs + generated SVGs.
-
-[ ] Document trade-offs and recommended settings in README.md.
-
-
+5. Roadmap
+
+Milestones 1 through 4 (repo skeleton, palette and region map, region extraction,
+simplification and curves) and milestone 5 (CLI) are complete, as is the quality
+work originally listed under milestone 7. See TODO.md for the current checklist.
+
+Remaining: milestone 6 (WASM build and web UI), plus gradient detection, stroke
+recovery and a corpus of real logos with committed expected outputs.
+
+Testing approach: the engine is validated against geometry whose exact values are
+known. png2svg/core/tests/quality.rs renders known shapes with proper
+anti-aliasing, vectorizes the pixels, and asserts the original geometry came back
+- "did the circle return as a circle, with the right radius, to within a tenth of
+a pixel". png2svg/core/examples/benchmark.rs reports the same measurements as a
+table, and doubles as the harness for comparing against any other engine.
 
 ---
 
 6. Stretch Features (Future)
 
-Do not implement in v1 unless everything above is stable.
+Do not implement until everything above is stable.
 
-AI/ML edge refinement (small model to detect important edges).
+Gradient detection, emitting <linearGradient> / <radialGradient>.
+
+Stroke recovery: recognise a filled outline that was originally a stroked path.
 
 Interactive editing in the web UI:
 

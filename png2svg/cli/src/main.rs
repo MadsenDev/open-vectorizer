@@ -4,17 +4,22 @@ use std::process;
 
 use anyhow::{Context, Result};
 use clap::{ArgAction, Parser};
-use png2svg_core::{png_to_svg, VectorizeMode, VectorizeOptions};
+use png2svg_core::{accuracy, vectorize_bytes, VectorizeMode, VectorizeOptions};
 
-/// Minimal CLI wrapper around the png2svg core engine.
+/// CLI wrapper around the png2svg core engine.
 #[derive(Parser, Debug)]
 #[command(
     name = "png2svg",
-    about = "Convert PNG assets into SVGs (stub engine)",
-    long_about = "Convert PNG assets into SVGs with palette reduction and basic grouping."
+    about = "Convert raster logos and icons into clean SVG",
+    long_about = "Convert raster images into clean, editable SVG.\n\n\
+                  Reads anti-aliased edges as sub-pixel coverage rather than as \
+                  colors, recovers corners and primitives, and picks the simplest \
+                  geometry that still reproduces the input. Circles, ellipses and \
+                  rectangles are emitted as real SVG elements. Runs entirely \
+                  locally and is deterministic."
 )]
 struct Cli {
-    /// Path to the input PNG file.
+    /// Path to the input image (PNG, JPEG, WebP, GIF, BMP, ...).
     input: PathBuf,
     /// Optional path to write the SVG output. Defaults to stdout.
     #[arg(short, long)]
@@ -46,15 +51,19 @@ struct Cli {
         help = "Higher smoothness softens edges; valid range is 0.0-1.0."
     )]
     smoothness: f32,
-    /// Tolerance for path simplification and grouping (higher = looser).
+    /// Geometric error ceiling (higher = looser, fewer nodes).
     #[arg(
         short = 't',
         long,
         default_value_t = 1.5,
         value_parser = parse_tolerance,
-        help = "Controls how aggressively nearby segments are merged (0.1-10.0)."
+        help = "Geometric error ceiling, 0.1-10.0. A quarter of this is the \
+                budget in pixels, so the default 1.5 allows about 0.38px."
     )]
     tolerance: f32,
+    /// Report shape and node counts, and how well the SVG reproduces the input.
+    #[arg(long, action = ArgAction::SetTrue)]
+    stats: bool,
     /// Rendering mode hint.
     #[arg(
         long,
@@ -145,7 +154,24 @@ fn run() -> Result<()> {
         eprintln!("[open-vectorizer] options: {:?}", options);
     }
 
-    let svg = png_to_svg(&png_bytes, &options)?;
+    let document = vectorize_bytes(&png_bytes, &options)?;
+
+    if cli.stats {
+        let stats = document.stats();
+        // Decode once more to score the result against the source. Reporting
+        // accuracy alongside the node count is the honest pair of numbers: a
+        // vectorizer can always be more accurate by emitting more geometry.
+        let score = image::load_from_memory(&png_bytes)
+            .map(|image| accuracy(&document, &image.to_rgba8()))
+            .unwrap_or(f64::NAN);
+
+        eprintln!(
+            "[open-vectorizer] {} shapes, {} nodes ({} circles, {} ellipses, {} rects), accuracy {:.5}",
+            stats.shapes, stats.nodes, stats.circles, stats.ellipses, stats.rects, score
+        );
+    }
+
+    let svg = document.to_svg();
 
     match cli.output {
         Some(path) => {

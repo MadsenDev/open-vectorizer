@@ -163,8 +163,11 @@ pub fn build_palette(image: &RgbaImage, max_colors: usize, merge_threshold: u32)
         return Palette::new(vec![[0, 0, 0, 0]]);
     }
 
-    let mut colors = median_cut(histogram, opaque_slots);
-    colors = merge_similar(colors, merge_threshold);
+    let groups = median_cut(histogram, opaque_slots);
+    let mut colors: Vec<[u8; 4]> = merge_similar(groups, merge_threshold)
+        .iter()
+        .map(Bucket::average)
+        .collect();
     colors.sort_unstable();
 
     if has_transparency {
@@ -314,7 +317,9 @@ impl ColorBox {
         self.extent as f64 * (self.population as f64).sqrt()
     }
 
-    fn representative(&self) -> [u8; 4] {
+    /// Total colour mass in this box: the representative colour together with
+    /// how many pixels voted for it.
+    fn mass(&self) -> Bucket {
         let mut sum = [0u64; 4];
         let mut count = 0u64;
         for bucket in &self.buckets {
@@ -323,7 +328,7 @@ impl ColorBox {
             }
             count += bucket.count;
         }
-        Bucket { sum, count }.average()
+        Bucket { sum, count }
     }
 
     fn split(mut self) -> (ColorBox, ColorBox) {
@@ -363,9 +368,16 @@ fn channel_of(premul: Premul, axis: usize) -> f32 {
     }
 }
 
-fn median_cut(buckets: Vec<Bucket>, max_colors: usize) -> Vec<[u8; 4]> {
+/// Returns one bucket per palette slot, keeping the accumulated colour mass.
+///
+/// The populations matter downstream: merging has to know that a 300-pixel blend
+/// weighs far less than a 30,000-pixel fill.
+fn median_cut(buckets: Vec<Bucket>, max_colors: usize) -> Vec<Bucket> {
     if buckets.is_empty() {
-        return vec![[0, 0, 0, 0]];
+        return vec![Bucket {
+            sum: [0; 4],
+            count: 1,
+        }];
     }
 
     let mut boxes = vec![ColorBox::new(buckets)];
@@ -393,7 +405,7 @@ fn median_cut(buckets: Vec<Bucket>, max_colors: usize) -> Vec<[u8; 4]> {
     boxes
         .iter()
         .filter(|color_box| !color_box.buckets.is_empty())
-        .map(ColorBox::representative)
+        .map(ColorBox::mass)
         .collect()
 }
 
@@ -410,22 +422,21 @@ fn median_cut(buckets: Vec<Bucket>, max_colors: usize) -> Vec<[u8; 4]> {
 /// order the quantizer happened to emit: given colors 197, 203, 199 and 201, it
 /// compares 203 against 197, finds them too far apart, and strands them in
 /// separate groups even though 199 and 201 would have chained them together.
-fn merge_similar(colors: Vec<[u8; 4]>, threshold: u32) -> Vec<[u8; 4]> {
-    if threshold == 0 || colors.len() < 2 {
-        return colors;
+///
+/// Populations are carried through the merge, and that is essential rather than
+/// a refinement. A low-contrast boundary — cream artwork on a white page — puts
+/// its blend colors into the palette, and those blends form a chain of small
+/// steps between the two real colors. Merging on unweighted averages walks that
+/// chain and drags both ends to the midpoint, so the page and the artwork
+/// collapse into one phantom colour and the boundary between them dissolves into
+/// noise. Weighting by population pins each group to whichever populous colour it
+/// belongs to, and the two real colors stay the required distance apart.
+fn merge_similar(groups: Vec<Bucket>, threshold: u32) -> Vec<Bucket> {
+    if threshold == 0 || groups.len() < 2 {
+        return groups;
     }
 
-    let mut groups: Vec<Bucket> = colors
-        .iter()
-        .map(|color| {
-            let mut sum = [0u64; 4];
-            for (slot, &value) in sum.iter_mut().zip(color.iter()) {
-                *slot = value as u64;
-            }
-            Bucket { sum, count: 1 }
-        })
-        .collect();
-
+    let mut groups = groups;
     loop {
         // Closest pair of group averages still within the threshold.
         let mut best: Option<(usize, usize, u32)> = None;
@@ -452,7 +463,7 @@ fn merge_similar(colors: Vec<[u8; 4]>, threshold: u32) -> Vec<[u8; 4]> {
         groups[left].count += absorbed.count;
     }
 
-    groups.iter().map(Bucket::average).collect()
+    groups
 }
 
 #[cfg(test)]
@@ -526,6 +537,52 @@ mod tests {
         });
         let palette = build_palette(&image, 8, 400);
         assert_eq!(palette.len(), 1, "got {:?}", palette.colors);
+    }
+
+    #[test]
+    fn low_contrast_neighbours_survive_the_merge() {
+        // Cream artwork on a white page: the two colors are only ~9/255 apart,
+        // and the soft edge between them steps by less than the flatness
+        // threshold, so its blend colors do reach the palette. Merging on
+        // unweighted averages then walks that chain and drags both ends to the
+        // midpoint, collapsing page and artwork into one phantom colour. Carrying
+        // populations pins each blend to the populous colour it belongs to.
+        let image = RgbaImage::from_fn(64, 16, |x, _| {
+            let t = ((x as f32 - 30.0) / 4.0).clamp(0.0, 1.0);
+            let ramp = |from: f32, to: f32| (from + (to - from) * t).round() as u8;
+            Rgba([
+                ramp(246.0, 255.0),
+                ramp(246.0, 255.0),
+                ramp(244.0, 255.0),
+                255,
+            ])
+        });
+
+        let palette = build_palette(&image, 8, 196);
+
+        let cream = palette
+            .colors
+            .iter()
+            .find(|color| color[0] < 251)
+            .copied()
+            .unwrap_or_else(|| panic!("cream was lost: {:?}", palette.colors));
+        let page = palette
+            .colors
+            .iter()
+            .find(|color| color[0] >= 253)
+            .copied()
+            .unwrap_or_else(|| panic!("the page was lost: {:?}", palette.colors));
+
+        // Both must stay close to where they started, rather than meeting in the
+        // middle.
+        assert!(
+            perceptual_distance_sq(cream, [246, 246, 244, 255]) < 100,
+            "cream drifted to {cream:?}"
+        );
+        assert!(
+            perceptual_distance_sq(page, [255, 255, 255, 255]) < 100,
+            "page drifted to {page:?}"
+        );
     }
 
     #[test]

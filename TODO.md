@@ -48,6 +48,9 @@ Tracking what is done and what is left.
 - [x] Input above 2048px downscaled, with a notice, to stay inside wasm memory.
 - [x] GitHub Pages deployment on push to `main`.
 - [x] Browser smoke test (`web-ui/scripts/smoke.mjs`).
+- [x] Options as a bottom sheet below `lg`, so settings are reachable on a phone
+      without scrolling, with the result kept visible while a slider moves.
+- [x] Mobile smoke test covering the sheet (`web-ui/scripts/smoke-mobile.mjs`).
 - [ ] Example gallery (PNG input + expected SVG) for quick validation.
 - [ ] Side-by-side zoom and pan, so sub-pixel differences are actually visible.
 - [ ] Raise the input ceiling: stream coverage per colour instead of holding every

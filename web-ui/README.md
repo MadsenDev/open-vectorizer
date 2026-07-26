@@ -32,6 +32,13 @@ bundle is already current.
   universally available. Each run sends the worker a copy of the pixels and
   transfers that copy, so the buffer survives for the next run when a slider
   moves — transferring the original would empty it after the first conversion.
+- **Below `lg` the options become a bottom sheet**, reached from a floating
+  button, so changing a setting on a phone does not mean scrolling back up. It is
+  deliberately *not* modal and has no backdrop: the result has to stay visible and
+  undimmed while a slider moves. Opening the sheet scrolls the result pane to the
+  top and caps its height to the space left over, so the thing you are adjusting
+  is fully on screen. It is one element, restyled by breakpoint, rather than two
+  copies of the same controls.
 - **Input above 2048px on the long edge is downscaled**, and the page says so.
   Coverage is held as one full-canvas field per palette colour, so memory grows
   as `width × height × colours`; 2048px with eight colours is about 150MB, and
@@ -51,18 +58,26 @@ locally:
 BASE_PATH=/ npm run build
 ```
 
-## Browser smoke test
+## Browser smoke tests
 
-Checks the things a unit test cannot: that the wasm loads from its hashed asset
-path, that the worker starts, and that the page renders real SVG.
+Two scripts, checking the things a unit test cannot see.
 
 ```bash
 npm run build
 npx vite preview --port 4180 &
 npm i --no-save playwright
+
+# Desktop: the wasm loads from its hashed asset path, the worker starts, and the
+# page renders real SVG.
 node scripts/smoke.mjs ../benchmarks/shootout/cases/ring.png
+
+# Mobile (iPhone 13 viewport): the options sheet parks off-screen and leaves the
+# tab order when closed, opening it keeps the result fully visible, sliders inside
+# it still reach the engine, Escape closes it, and the floating button covers no
+# content at the bottom of the page.
+node scripts/smoke-mobile.mjs ../benchmarks/shootout/cases/badge.png
 ```
 
-Exits non-zero if the page reports a console error, fails to render an SVG, or
-leaves the download button disabled. `SCREENSHOT=shot.png` also captures the
-page.
+Both exit non-zero on any console error or failed assertion. `SCREENSHOT` and
+`SCREENSHOT_DIR` capture the pages, `CHROMIUM` overrides the browser path and
+`PREVIEW_URL` the address.

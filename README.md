@@ -25,7 +25,7 @@ Measured against shapes whose exact geometry is known (`cargo run --release -p p
 
 `accuracy` is 1 − mean absolute coverage error after re-rasterizing the SVG and comparing it to the source. Node counts and accuracy belong together: any vectorizer can buy accuracy with more geometry.
 
-Still to do: gradient detection, stroke recovery, and a corpus of real logos. See `TODO.md`.
+Still to do: gradient detection, stroke recovery, and a corpus of real logos. See `TODO.md`, and [`CONTRIBUTING.md`](CONTRIBUTING.md) if you fancy solving one of them.
 
 ## Compared with other engines
 
@@ -112,8 +112,10 @@ Four things follow from that, and together they are what make the output clean:
 
 - `png2svg/core/` – the engine (`png2svg-core`)
 - `png2svg/cli/` – command-line wrapper (`png2svg-cli`)
-- `web-ui/` – React + TypeScript + Tailwind front-end (placeholder)
+- `web-ui/` – React + TypeScript + Tailwind front-end, running the engine as WebAssembly
+- `benchmarks/` – ground-truth benchmark and the shootout against other engines
 - `examples/` – sample inputs and outputs
+- `docs/ARCHITECTURE.md` – how the pipeline fits together, and where to change it
 
 Inside the core, one module per stage: `quantize` (palette), `field` (coverage), `trace` (contours), `corner`, `fit` (curves), `primitive`, `raster` (the compare loop), `svg` (output), `vectorize` (orchestration).
 
@@ -203,6 +205,40 @@ Other current limits, stated plainly:
 - **Rotated rectangles stay paths.** They are recovered as four exact lines; only axis-aligned ones become `<rect>`.
 - **Pixel-art detection is conservative.** `auto` only chooses `pixel` for images up to 16px with no partial alpha. Pass `--mode pixel` for larger pixel art.
 - **The web UI caps input at 2048px** on the long edge and downscales above that. Coverage is one full-canvas field per palette colour, so memory grows as `width × height × colours`, and 4096px would exceed what WebAssembly can hold on mobile. The CLI has more headroom but the same underlying cost.
+
+## Contributing
+
+Open Vectorizer already performs strongly on geometric flat artwork, but there is
+a lot left to solve. If you are interested in computational geometry, image
+processing, SVG or Rust, contributions and experiments are very welcome.
+
+The useful thing here is that everything is measurable. There is a benchmark
+against known geometry and a shootout against potrace and VTracer scored by an
+external renderer, so a better ellipse fitter or a faster decomposition is not a
+matter of opinion — you can show it. And you do not need to understand the whole
+engine: most of the open problems sit inside one module.
+
+Currently open, roughly in order of how much they would change the output:
+
+- **Gradient detection** — a gradient becomes quantized bands today, not a `<linearGradient>`
+- **Stroke recovery** — a stroked outline comes back as a filled shape following both sides
+- **A corpus of real logos** with committed expected outputs — glyphs, thin strokes, drop shadows
+- **Rounded-rectangle primitive** — `<rect rx>` instead of four lines and four curves
+- **Speed** — we are 2–4× slower than VTracer, and the per-colour loop is embarrassingly parallel
+- **Better pixel-art detection** than the current size-and-alpha heuristic
+- **More benchmark competitors**, and better curve fitting
+
+Alternative algorithms are explicitly welcome. Do not treat the current
+implementation as the specification — several choices were the simplest thing
+that measured well, not the best available, and the benchmark will settle any
+disagreement.
+
+Start with [`CONTRIBUTING.md`](CONTRIBUTING.md) for setup and how to show that a
+change helped, and [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for how the
+pipeline fits together. Issues labelled
+[`good first issue`](https://github.com/vardirhq/open-vectorizer/labels/good%20first%20issue)
+and [`help wanted`](https://github.com/vardirhq/open-vectorizer/labels/help%20wanted)
+have the clearest edges.
 
 ## Licence
 

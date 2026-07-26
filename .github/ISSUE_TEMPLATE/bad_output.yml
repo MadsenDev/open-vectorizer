@@ -1,0 +1,54 @@
+name: Bad vectorization
+description: An image that converts badly — wrong shapes, too many nodes, missing detail, wrong colours.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        An input that vectorizes badly is one of the most useful things you can
+        report, especially real-world artwork. The synthetic benchmark cannot
+        find these.
+
+  - type: textarea
+    id: input
+    attributes:
+      label: The input
+      description: Attach the image (drag it in). If you cannot share it, a reduced case that reproduces the same problem works too.
+    validations:
+      required: true
+
+  - type: input
+    id: command
+    attributes:
+      label: Command or settings
+      description: The exact CLI invocation, or the settings you used in the browser.
+      placeholder: png2svg logo.png -o logo.svg --colors 8 --detail 0.5
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected, and what you got
+      description: |
+        Be as specific as you can. "The ring came back as 40 path nodes instead of two circles"
+        is much more actionable than "the output is bad". Attaching the SVG helps.
+    validations:
+      required: true
+
+  - type: textarea
+    id: stats
+    attributes:
+      label: --stats output
+      description: Run the CLI with `--stats` and paste the line. Skip if you used the browser.
+      render: text
+    validations:
+      required: false
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: A commit SHA, a release tag, or "vector.vardir.no" if you used the web app.
+    validations:
+      required: false

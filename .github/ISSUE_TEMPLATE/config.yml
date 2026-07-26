@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Try it in the browser
+    url: https://vector.vardir.no
+    about: The engine runs client-side. Useful for checking whether a problem reproduces before filing.
+  - name: How the pipeline works
+    url: https://github.com/vardirhq/open-vectorizer/blob/main/docs/ARCHITECTURE.md
+    about: What each stage does, what it guarantees the next one, and where to intervene.
+  - name: Contributing guide
+    url: https://github.com/vardirhq/open-vectorizer/blob/main/CONTRIBUTING.md
+    about: Setup, the open problems, and how to show that a change helped.

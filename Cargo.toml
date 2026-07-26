@@ -9,7 +9,7 @@ resolver = "2"
 edition = "2021"
 authors = ["Open Vectorizer Contributors"]
 license = "MIT"
-repository = "https://example.com/open-vectorizer"
+repository = "https://github.com/vardirhq/open-vectorizer"
 
 [workspace.dependencies]
 anyhow = "1.0"

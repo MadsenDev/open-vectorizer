@@ -25,6 +25,25 @@ cargo build --release
 
 If `vtracer` is not on `PATH`, set `VTRACER=/path/to/vtracer`.
 
+## Rebuilding the README figure
+
+The comparison at the top of the README is generated from the same case
+directory, after `run.sh` has produced each engine's output:
+
+```bash
+cd benchmarks/shootout
+./target/release/figure ./cases ./figure
+rsvg-convert -w 1684 -o ../../docs/images/comparison.png ./figure/comparison.svg
+pngquant --quality 70-95 --speed 1 -f -o ../../docs/images/comparison.png \
+  ../../docs/images/comparison.png
+```
+
+Node markers come from the same parser as the tables, so the dots in the picture
+and the numbers underneath it cannot drift apart. The figure leaves out the
+background rectangle each engine emits on an opaque input — it is not part of
+the mark, and the rule is applied to every engine identically — while the tables
+count the whole file.
+
 ## What it measures
 
 Each tool is given the input its design expects, and every result is then scored
@@ -34,10 +53,17 @@ the comparison cannot quietly favour our own model of the image.
 
 - **accuracy** — `1 −` mean absolute per-pixel difference, in premultiplied
   alpha. Table 1 compares coverage only; Table 2 compares full RGBA.
-- **nodes** — on-curve nodes, parsed from the SVG. Path data is parsed properly
-  rather than by counting command letters, because SVG allows implicit
-  repetition: a `C` followed by twelve numbers is two cubics under one letter.
-  `<circle>`, `<ellipse>` and `<rect>` count as one node each.
+- **nodes** — on-curve nodes, parsed from the SVG. `<circle>`, `<ellipse>` and
+  `<rect>` count as one node each, which is the point of emitting them. Two
+  things make this more than counting command letters. SVG allows implicit
+  repetition, so a `C` followed by twelve numbers is two cubics under one letter
+  and letter-counting reports half the geometry. And generators disagree about
+  how to close a shape: potrace ends its last curve on the starting point and
+  then writes `z`, while we write `Z` and let it draw the closing edge. Counting
+  drawing segments therefore charges potrace for a node it does not have and
+  lets us off one we do, so the parser collects the actual on-curve points of
+  each subpath and drops a final point that merely repeats the start. A
+  quadrilateral has four nodes either way it is written.
 - **area** — rendered coverage minus source coverage, in pixels. This catches
   systematic dilation or erosion that an averaged accuracy figure hides.
 

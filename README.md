@@ -4,6 +4,30 @@ A fully open-source raster → SVG converter for logos, icons and flat artwork. 
 
 **Try it in the browser: [vector.vardir.no](https://vector.vardir.no)** — the engine is compiled to WebAssembly and runs on the page, so the image is never uploaded anywhere. Also served at [vardirhq.github.io/open-vectorizer](https://vardirhq.github.io/open-vectorizer/).
 
+<p align="center">
+  <img src="docs/images/comparison.png" width="842"
+       alt="Four rows of shapes — circle, rotated square, five-point star and an organic blob — each shown as an anti-aliased input raster and then as traced by Open Vectorizer, VTracer and potrace, with a marker on every on-curve node the engine emitted.">
+</p>
+
+Any two renderings of a traced circle look like a circle. What differs is the
+geometry underneath, so the figure draws that: a marker on every on-curve node
+each engine emitted. A recovered primitive is a single node — `<circle cx cy r>`
+— so its marker sits at the centre rather than on the outline. The background
+rectangle each engine emits on an opaque input is excluded from the picture and
+counted in the tables. Open Vectorizer also has the higher accuracy in all four
+cases; the numbers, the rest of the corpus and the caveats are
+[below](#compared-with-other-engines). On the blob — the one shape with no
+primitive and no corners to exploit — potrace's curve fitting comes in a node
+ahead of ours.
+
+The engine can do that because it treats anti-aliasing as information rather
+than noise: a boundary pixel is a measurement of how much of it each colour
+covers, which places an edge to a hundredth of a pixel where an integer-grid
+tracer cannot do better than half a pixel. The rest follows — sub-pixel
+contours, corners recovered by intersecting fitted lines instead of tracing
+them, and candidate shapes rasterized back and scored against the source so the
+simplest one that measures well enough wins. [In full](#approach).
+
 ## Status
 
 The vectorization engine works. It recovers circles, ellipses, rectangles, sharp corners and smooth curves from anti-aliased raster input, and emits minimal, editable SVG. The three cases that defeated the previous implementation — smooth rings, sharp logo marks, and noisy transparent edges — are now covered by ground-truth tests.
@@ -40,14 +64,14 @@ Against the two leading open-source non-AI vectorizers, on the same inputs, scor
 | ring | 0.99966 / 8 / +6 | 0.99591 / 18 / −60 |
 | ellipse | 0.99964 / 1 / −11 | 0.99761 / 8 / −84 |
 | square | 0.99927 / 1 / +1 | 0.99633 / 8 / +13 |
-| rotated square | 0.99980 / 3 / +2 | 0.99758 / 5 / −65 |
-| triangle | 0.99995 / 2 / −0 | 0.99797 / 7 / −56 |
-| 5-point star | 0.99972 / 9 / +7 | 0.99851 / 20 / +17 |
+| rotated square | 0.99980 / 4 / +2 | 0.99758 / 5 / −65 |
+| triangle | 0.99995 / 3 / −0 | 0.99797 / 7 / −56 |
+| 5-point star | 0.99972 / 10 / +7 | 0.99851 / 20 / +17 |
 | rounded rect | 0.99957 / 8 / +12 | 0.99584 / 8 / −110 |
 | capsule | 0.99945 / 8 / −7 | 0.99448 / 11 / −113 |
 | 24px icon | 0.99705 / 1 / −2 | 0.97926 / 5 / −12 |
 | organic blob | 0.99877 / 18 / −35 | 0.99760 / 17 / −84 |
-| thick L | 1.00000 / 5 / +0 | 1.00000 / 12 / +0 |
+| thick L | 1.00000 / 6 / +0 | 1.00000 / 12 / +0 |
 | circle @ 1024px | 0.99989 / 1 / +90 | 0.99958 / 20 / −424 |
 
 `area` is rendered minus source coverage, in pixels. potrace's consistently negative figures are the thresholding: with the anti-aliasing discarded, every boundary lands up to half a pixel inside where it belongs. That is the structural difference, not a tuning gap.
@@ -56,25 +80,27 @@ Against the two leading open-source non-AI vectorizers, on the same inputs, scor
 
 | case | ours: accuracy / nodes / ms | vtracer: accuracy / nodes / ms |
 | --- | --- | --- |
-| circle | 0.99991 / 8 / 27 | 0.99592 / 14 / 8 |
-| circle off-grid | 0.99970 / 8 / 19 | 0.99483 / 13 / 6 |
-| ring | 0.99977 / 16 / 34 | 0.99150 / 24 / 9 |
-| ellipse | 0.99976 / 8 / 24 | 0.99382 / 19 / 8 |
-| square | 0.99951 / 7 / 10 | 0.99195 / 8 / 6 |
-| rotated square | 0.99987 / 9 / 12 | 0.99197 / 49 / 7 |
-| triangle | 0.99997 / 7 / 13 | 0.99536 / 40 / 8 |
-| 5-point star | 0.99981 / 21 / 28 | 0.99292 / 76 / 10 |
-| rounded rect | 0.99962 / 19 / 17 | 0.99468 / 50 / 7 |
-| capsule | 0.99963 / 19 / 15 | 0.99334 / 32 / 6 |
-| 24px icon | 0.99804 / 8 / 4 | 0.97522 / 10 / 4 |
-| organic blob | 0.99918 / 41 / 36 | 0.99535 / 34 / 11 |
-| thick L | 1.00000 / 13 / 13 | 1.00000 / 10 / 8 |
-| circle @ 1024px | 0.99993 / 8 / 540 | 0.99782 / 56 / 156 |
-| badge, 3 colours | 0.99954 / 33 / 52 | 0.98939 / 32 / 10 |
-| wordmark | 0.99995 / 20 / 28 | 0.99668 / 23 / 7 |
-| three-colour mark | 0.99925 / 70 / 30 | 0.99364 / 183 / 11 |
+| circle | 0.99991 / 9 / 27 | 0.99592 / 14 / 8 |
+| circle off-grid | 0.99970 / 9 / 19 | 0.99483 / 13 / 6 |
+| ring | 0.99977 / 17 / 34 | 0.99150 / 24 / 9 |
+| ellipse | 0.99976 / 9 / 24 | 0.99382 / 19 / 8 |
+| square | 0.99951 / 9 / 10 | 0.99195 / 8 / 6 |
+| rotated square | 0.99987 / 12 / 12 | 0.99197 / 49 / 7 |
+| triangle | 0.99997 / 10 / 13 | 0.99536 / 40 / 8 |
+| 5-point star | 0.99981 / 24 / 28 | 0.99292 / 76 / 10 |
+| rounded rect | 0.99962 / 20 / 17 | 0.99468 / 50 / 7 |
+| capsule | 0.99963 / 20 / 15 | 0.99334 / 32 / 6 |
+| 24px icon | 0.99804 / 9 / 4 | 0.97522 / 10 / 4 |
+| organic blob | 0.99918 / 43 / 36 | 0.99535 / 34 / 11 |
+| thick L | 1.00000 / 16 / 13 | 1.00000 / 10 / 8 |
+| circle @ 1024px | 0.99993 / 9 / 540 | 0.99782 / 56 / 156 |
+| badge, 3 colours | 0.99954 / 34 / 52 | 0.98939 / 32 / 10 |
+| wordmark | 0.99995 / 24 / 28 | 0.99668 / 23 / 7 |
+| three-colour mark | 0.99925 / 81 / 30 | 0.99364 / 183 / 11 |
 
-We lead on accuracy in every case in both tables, and on node count in most. Where we do not: potrace matches us on the organic blob (17 nodes vs 18) — the one case with no primitive to exploit, and a fair reading of its curve fitting, which is genuinely excellent. VTracer beats us on the blob and the thick L, and is consistently **2–4× faster**.
+We lead on accuracy in every case in both tables, and on node count in most. Where we do not: potrace comes in a node ahead on the organic blob (17 vs 18) — the one case with no primitive to exploit, and a fair reading of its curve fitting, which is genuinely excellent. VTracer is ahead on the blob, the thick L, the square, the badge and the wordmark, and is consistently **2–4× faster**.
+
+All but the blob are the same effect rather than better geometry. Given an opaque image we emit the background as a shape with the artwork punched out of it, while VTracer paints a plain background rectangle and draws the artwork over it; the hole costs us a second copy of every contour in the image. On the square that is 7 of our 9 nodes, and it is why the same shape costs 1 node in Table 1 and 9 in Table 2. Whether the hole can simply be dropped depends on what partly transparent artwork needs, so it is an open question rather than a known win, and it is tracked in `TODO.md`.
 
 ### What this does and does not show
 
@@ -225,6 +251,7 @@ Currently open, roughly in order of how much they would change the output:
 - **A corpus of real logos** with committed expected outputs — glyphs, thin strokes, drop shadows
 - **Rounded-rectangle primitive** — `<rect rx>` instead of four lines and four curves
 - **Speed** — we are 2–4× slower than VTracer, and the per-colour loop is embarrassingly parallel
+- **Cheaper background on opaque input** — the background is emitted with the artwork punched out of it, so every contour is paid for twice
 - **Better pixel-art detection** than the current size-and-alpha heuristic
 - **More benchmark competitors**, and better curve fitting
 

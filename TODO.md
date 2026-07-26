@@ -24,6 +24,14 @@ Tracking what is done and what is left.
 - [ ] Better pixel-art detection than the current size-and-alpha heuristic (look for an integer upscale grid).
 - [ ] Faster: we are 2-4x slower than VTracer. The pipeline is embarrassingly
       parallel per palette entry, and the coverage decomposition is the hot loop.
+- [ ] Cheaper background on opaque input. Every colour region is emitted with the
+      regions above it punched out, so on a photo-style opaque image the
+      background carries a second copy of every contour: an axis-aligned square
+      on white costs 9 nodes rather than 2, and it is most of the gap to VTracer
+      on `square`, `thick-L`, `badge` and `wordmark` in the shootout. Painting an
+      opaque region as a plain rectangle and layering the artwork over it would
+      remove that, but only where nothing above it is partly transparent, so the
+      condition needs working out rather than assuming.
 - [ ] Relative rather than absolute flatness in `interior_mask`. A low-contrast
       boundary steps by less than the fixed threshold, so its blend colours reach
       the palette; population-weighted merging now contains the damage, but the

@@ -38,11 +38,20 @@ Tracking what is done and what is left.
 
 ## WASM + web UI
 
-- [ ] Reusable wasm-pack/Vite build that emits the WASM bundle consumed by the app.
-- [ ] Wire the "Download SVG" button to wasm output and loading states.
-- [ ] Preset buttons for Logo/Poster/Pixel Art and documented parameter ranges.
-- [ ] Show node count and accuracy in the UI, so the quality/complexity trade-off is visible.
+- [x] Reproducible wasm build (`web-ui/scripts/build-wasm.sh`) emitting the bundle the app consumes.
+- [x] Browser build without image decoders: the page decodes natively, so every
+      format it reads works and the payload is 150KB gzipped rather than 393KB.
+- [x] Vectorization in a Web Worker, so the tab stays responsive.
+- [x] Download button wired to real output, with loading and error states.
+- [x] Preset buttons for Logo/Poster/Pixel Art, and every option documented in the UI.
+- [x] Node count and accuracy shown, so the quality/complexity trade-off is visible.
+- [x] Input above 2048px downscaled, with a notice, to stay inside wasm memory.
+- [x] GitHub Pages deployment on push to `main`.
+- [x] Browser smoke test (`web-ui/scripts/smoke.mjs`).
 - [ ] Example gallery (PNG input + expected SVG) for quick validation.
+- [ ] Side-by-side zoom and pan, so sub-pixel differences are actually visible.
+- [ ] Raise the input ceiling: stream coverage per colour instead of holding every
+      field at once, which is what forces the 2048px cap.
 
 ## Testing
 
@@ -60,4 +69,5 @@ Tracking what is done and what is left.
 
 - [x] README describing the approach, options, measured results and known limits.
 - [x] Per-module documentation explaining why each stage works the way it does.
-- [ ] Developer notes for running the WASM build and publishing the package.
+- [x] Developer notes for the WASM build and the Pages deployment (`web-ui/README.md`).
+- [ ] Publish `png2svg-core` to crates.io and the wasm package to npm.

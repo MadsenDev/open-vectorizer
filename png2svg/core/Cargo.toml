@@ -9,9 +9,29 @@ repository.workspace = true
 [lib]
 crate-type = ["rlib", "cdylib"]
 
+[features]
+default = ["decode"]
+# Image decoders. The browser build drops these: the page decodes with
+# createImageBitmap and hands raw pixels to `vectorize_rgba_wasm`, which both
+# keeps the codecs out of the wasm binary and means every format the browser can
+# read is supported for free.
+decode = [
+    "image/png",
+    "image/jpeg",
+    "image/gif",
+    "image/ico",
+    "image/bmp",
+    "image/pnm",
+    "image/tga",
+    "image/tiff",
+]
+
 [dependencies]
 anyhow.workspace = true
-image.workspace = true
+# Declared directly rather than inherited: the workspace entry turns on every
+# decoder, and Cargo features are additive, so a slim browser build has to opt in
+# from nothing.
+image = { version = "0.25", default-features = false }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

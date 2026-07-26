@@ -2,6 +2,8 @@
 
 A fully open-source raster → SVG converter for logos, icons and flat artwork. Rust core, CLI, and a WebAssembly build for the browser. Runs entirely locally: no model, no inference, no network.
 
+**Try it in the browser: [vardirhq.github.io/open-vectorizer](https://vardirhq.github.io/open-vectorizer/)** — the engine is compiled to WebAssembly and runs on the page, so the image is never uploaded anywhere.
+
 ## Status
 
 The vectorization engine works. It recovers circles, ellipses, rectangles, sharp corners and smooth curves from anti-aliased raster input, and emits minimal, editable SVG. The three cases that defeated the previous implementation — smooth rings, sharp logo marks, and noisy transparent edges — are now covered by ground-truth tests.
@@ -23,7 +25,7 @@ Measured against shapes whose exact geometry is known (`cargo run --release -p p
 
 `accuracy` is 1 − mean absolute coverage error after re-rasterizing the SVG and comparing it to the source. Node counts and accuracy belong together: any vectorizer can buy accuracy with more geometry.
 
-Still to do: the WebAssembly build wiring and the web UI. See `TODO.md`.
+Still to do: gradient detection, stroke recovery, and a corpus of real logos. See `TODO.md`.
 
 ## Compared with other engines
 
@@ -161,6 +163,19 @@ cargo run --release -p png2svg-core --example generate_samples
 
 Writes PNG inputs and SVG outputs to `target/vectorizer-samples/`.
 
+### Web UI
+
+```bash
+cd web-ui
+npm install
+npm run dev
+```
+
+Builds the WebAssembly bundle and starts Vite. Conversion runs in a Web Worker, so
+the tab stays responsive; the browser decodes the file itself, so every format it
+reads is supported and no image codec is compiled into the wasm — which keeps the
+payload at 150KB gzipped. See `web-ui/README.md`.
+
 ## Performance
 
 Single-threaded, on one core. Logo-shaped input:
@@ -172,7 +187,7 @@ Single-threaded, on one core. Logo-shaped input:
 | 1024px | ~400ms |
 | 2048px | ~1.5s |
 
-Roughly linear in pixel count. Output is deterministic: the same input and options always produce byte-identical SVG.
+Roughly linear in pixel count. In the browser it is about 2× slower again — a 1024px logo takes roughly 550ms — which is why the web UI runs it in a worker. Output is deterministic: the same input and options always produce byte-identical SVG.
 
 ## Scope
 
@@ -187,6 +202,7 @@ Other current limits, stated plainly:
 - **No text recognition.** Letterforms are vectorized as shapes, which is usually what you want from a logo, but they are not fonts.
 - **Rotated rectangles stay paths.** They are recovered as four exact lines; only axis-aligned ones become `<rect>`.
 - **Pixel-art detection is conservative.** `auto` only chooses `pixel` for images up to 16px with no partial alpha. Pass `--mode pixel` for larger pixel art.
+- **The web UI caps input at 2048px** on the long edge and downscales above that. Coverage is one full-canvas field per palette colour, so memory grows as `width × height × colours`, and 4096px would exceed what WebAssembly can hold on mobile. The CLI has more headroom but the same underlying cost.
 
 ## Licence
 

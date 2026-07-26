@@ -50,13 +50,22 @@ any vectorizer can buy accuracy by emitting more geometry.
 ## Deployment
 
 Pushes to `main` build and publish to GitHub Pages via
-`.github/workflows/pages.yml`. The base path comes from the `configure-pages`
-action, so a rename or a custom domain needs no edit here. For a root deploy
-locally:
+`.github/workflows/pages.yml`, reachable at
+[vector.vardir.no](https://vector.vardir.no) and at
+`vardirhq.github.io/open-vectorizer`.
 
-```bash
-BASE_PATH=/ npm run build
-```
+Asset paths are **relative**, so one artifact serves correctly from both: the
+custom domain at the root and the project site under `/open-vectorizer/`. Both
+layouts are covered by the smoke tests below.
+
+The workflow used to compute an absolute base from the `configure-pages` output.
+That does report the real serving path, so it worked — but it made every build
+depend on CI resolving it, and a plain `npm run build` produced output that only
+worked under the project-site prefix. Relative paths remove the coupling: the
+workflow passes no base at all, and a local build is deployable anywhere.
+
+Safe here only because this is a single page with no client-side routing.
+`BASE_PATH=/some/prefix npm run build` forces an absolute base if that changes.
 
 ## Browser smoke tests
 

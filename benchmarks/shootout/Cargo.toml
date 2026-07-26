@@ -13,6 +13,10 @@ publish = false
 image = { version = "0.25", default-features = false, features = ["png"] }
 png2svg-core = { path = "../../png2svg/core" }
 
+[lib]
+name = "shootout"
+path = "src/lib.rs"
+
 [[bin]]
 name = "gen"
 path = "src/gen.rs"
@@ -24,3 +28,7 @@ path = "src/score.rs"
 [[bin]]
 name = "ours_white"
 path = "src/ours_white.rs"
+
+[[bin]]
+name = "figure"
+path = "src/figure.rs"

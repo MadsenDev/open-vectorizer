@@ -1,0 +1,57 @@
+name: Algorithm proposal
+description: A different or better way to do one of the pipeline stages — fitting, corners, primitives, decomposition.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Alternative algorithms are explicitly welcome. Nothing in the current
+        implementation is sacred — most choices were the simplest thing that
+        measured well, not the best available. `docs/ARCHITECTURE.md` describes
+        what each stage guarantees the next one.
+
+  - type: dropdown
+    id: stage
+    attributes:
+      label: Which stage
+      options:
+        - Palette / quantization (quantize.rs)
+        - Coverage decomposition (field.rs)
+        - Contour extraction (trace.rs)
+        - Corner detection (corner.rs)
+        - Curve and line fitting (fit.rs)
+        - Primitive recovery (primitive.rs)
+        - Candidate selection / scoring (vectorize.rs, raster.rs)
+        - SVG output (svg.rs)
+        - A new stage (gradients, strokes, something else)
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: The proposal
+      description: What would you do instead, and why is it better? A paper or reference implementation is welcome but not required.
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: How would we know it worked?
+      description: |
+        Which benchmark cases should improve, and in which column — accuracy, node count, or time?
+        If it improves something the benchmark does not currently measure, say what would need adding.
+    validations:
+      required: true
+
+  - type: textarea
+    id: risks
+    attributes:
+      label: What might it break?
+      description: |
+        Determinism, the sub-pixel guarantee, the wasm payload size, other stages that
+        depend on this one's output. Say what you have thought about; "not sure" is fine.
+    validations:
+      required: false

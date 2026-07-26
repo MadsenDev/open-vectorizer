@@ -1,0 +1,45 @@
+name: Feature or capability
+description: Something the engine, CLI or web UI cannot currently do.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check "Scope" in the README first — photographs, text recognition as
+        fonts, and a learned model are stated non-goals, with reasons.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What should it do
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: What are you trying to achieve
+      description: The underlying problem, not just the proposed solution. It sometimes has a better answer.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where
+      options:
+        - Core engine
+        - CLI
+        - Web UI / wasm
+        - Benchmarks and testing
+        - Documentation
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: help
+    attributes:
+      label: Would you like to work on this?
+      options:
+        - label: I would be interested in implementing this myself
+          required: false

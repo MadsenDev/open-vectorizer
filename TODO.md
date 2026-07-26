@@ -74,4 +74,14 @@ Tracking what is done and what is left.
 - [x] README describing the approach, options, measured results and known limits.
 - [x] Per-module documentation explaining why each stage works the way it does.
 - [x] Developer notes for the WASM build and the Pages deployment (`web-ui/README.md`).
+- [x] Contributor documentation: `CONTRIBUTING.md`, `docs/ARCHITECTURE.md`,
+      `CODE_OF_CONDUCT.md`, and issue/PR templates.
 - [ ] Publish `png2svg-core` to crates.io and the wasm package to npm.
+
+## Community
+
+- [x] Open problems written up as issues with enough context to start on, labelled
+      `good first issue` / `help wanted`.
+- [ ] Repository description and topics on GitHub (settings, not in the repo).
+- [ ] Decide whether to enable Discussions for design conversations that are not
+      issues.

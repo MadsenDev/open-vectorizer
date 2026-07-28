@@ -1,0 +1,1 @@
+Contributions improving this case should include evidence on at least one additional thin-stroke or symmetric fixture. The aim is a general reconstruction improvement, not tuning for this particular emblem.

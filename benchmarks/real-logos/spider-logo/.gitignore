@@ -1,0 +1,4 @@
+# Keep source/output placeholders explicit; do not accidentally commit unreviewed artwork.
+source/*
+!source/README.md
+!source/.gitkeep

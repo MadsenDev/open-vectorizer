@@ -1,0 +1,1 @@
+A circular spider emblem composed largely of thin curved outlines with strong left/right repetition. Human-perceived simplicity contrasts sharply with the current contour complexity, making it a useful stress case for structural reconstruction.
